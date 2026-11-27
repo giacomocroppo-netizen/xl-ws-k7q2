@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Snipper</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <link rel="stylesheet" href="taskpane.css" />
+</head>
+<body>
+  <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
+
+  <div class="tabs">
+    <button id="tab-snip" class="tab active">✂️ Spunta</button>
+    <button id="tab-org" class="tab">📁 Organizza</button>
+  </div>
+
+  <!-- ===== SCHERMATA SPUNTA ===== -->
+  <section id="view-snip">
+    <div class="bar">
+      <select id="docselect" title="Documento aperto"></select>
+      <label class="btn primary" for="import" title="Aggiungi documenti al file Excel">➕ Importa</label>
+    </div>
+
+    <div class="bar">
+      <div class="seg">
+        <button id="mode-snip" class="active" title="Seleziona un'area: il valore va nella cella attiva">SNIP</button>
+        <button id="mode-sum" title="Seleziona più numeri: scrive la somma come formula">SUM SNIP</button>
+      </div>
+      <button id="prev" title="Pagina precedente">◀</button>
+      <span id="pageinfo">–</span>
+      <button id="next" title="Pagina successiva">▶</button>
+      <button id="zoomout" title="Riduci">−</button>
+      <button id="zoomin" title="Ingrandisci">+</button>
+      <button id="findsnip" title="Mostra nel documento lo snip della cella selezionata">🔍 Trova</button>
+    </div>
+
+    <div class="bar small">
+      <label>Numeri:
+        <select id="numfmt">
+          <option value="it">Italiano (1.234,56)</option>
+          <option value="en">Inglese (1,234.56)</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="movedown" /> vai alla cella sotto</label>
+      <label><input type="checkbox" id="asnumber" checked /> converti in numero</label>
+    </div>
+
+    <div id="sumpanel" class="panel" hidden>
+      <div class="row"><strong>SUM SNIP</strong> <span id="sumtotal" class="total">Totale: 0</span></div>
+      <ul id="sumlist"></ul>
+      <div class="row">
+        <button id="sumwrite" class="btn primary">Scrivi somma in cella</button>
+        <button id="sumclear" class="btn">Svuota</button>
+      </div>
+    </div>
+
+    <div id="viewer">
+      <div id="stage" style="display:none">
+        <canvas id="canvas"></canvas>
+        <div id="overlay"></div>
+      </div>
+      <div id="empty" class="empty">Nessun documento aperto.<br>Premi «➕ Importa» oppure vai su «📁 Organizza».</div>
+    </div>
+  </section>
+
+  <!-- ===== SCHERMATA ORGANIZZA ===== -->
+  <section id="view-org" hidden>
+    <div class="bar">
+      <label class="btn primary" for="import">➕ Importa documenti</label>
+      <input id="docfilter" type="search" placeholder="Filtra per nome…" />
+    </div>
+    <div id="orgsummary" class="muted pad"></div>
+    <datalist id="folders"></datalist>
+    <div id="doclist"></div>
+  </section>
+
+  <div id="status" class="status">Pronto.</div>
+
+  <script src="snip-lib.js"></script>
+  <script src="export-lib.js"></script>
+  <script src="taskpane.js"></script>
+</body>
+</html>
