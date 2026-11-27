@@ -148,6 +148,7 @@ function initUI() {
   $("sumclear").addEventListener("click", () => { state.sumItems = []; renderSum(); drawMarks(); });
   $("docfilter").addEventListener("input", renderOrg);
   $("q").addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+  $("qgo").addEventListener("click", runSearch);
   $("resultsclose").addEventListener("click", closeResults);
   $("ocrrun").addEventListener("click", runBannerOcr);
   $("ocrlater").addEventListener("click", () => { docsNeedingOcr().forEach(d => state.ocrDismissed.add(d.id)); updateOcrBanner(); });
@@ -1310,9 +1311,24 @@ async function currentCellAddress() {
   });
 }
 
+async function currentCell() {
+  return Excel.run(async ctx => {
+    const c = ctx.workbook.getSelectedRange().getCell(0, 0);
+    c.load("address,text");
+    await ctx.sync();
+    return { address: c.address, text: String((c.text && c.text[0] && c.text[0][0]) || "") };
+  });
+}
+
 async function handleSelection() {
-  if (state.busy || !$("autoopen").checked || !state.log.length) return;
-  const addr = await currentCellAddress();
+  if (state.busy) return;
+  if (!$("cellsearch").checked && (!$("autoopen").checked || !state.log.length)) return;
+  const cell = await currentCell();
+  const addr = cell.address;
+  // il contenuto della cella finisce nella casella di ricerca (basta premere Invio o ↵)
+  const t = cell.text.trim();
+  if ($("cellsearch").checked && t && t.length <= 120 && document.activeElement !== $("q")) $("q").value = t;
+  if (!$("autoopen").checked || !state.log.length) return;
   const ids = [...new Set(state.log.filter(r => r.cell === addr).map(r => r.id))];
   if (!ids.length) {
     state.nav = null; updateNav();
