@@ -285,14 +285,13 @@ function updatePageUI() {
 
 const MODE_HELP = {
   snip: "SNIP: trascina un rettangolo sul valore → cella selezionata, poi a destra. CTRL = aggiungi alla cella precedente.",
-  sum: "SUM SNIP: seleziona i numeri uno alla volta, poi «Scrivi somma in cella».",
+  sum: "SUM SNIP: trascina sul numero (o su una colonna di numeri) → somma nella cella, poi a destra. CTRL = aggiungi alla somma della cella.",
   val: "VALIDATION: trascina sull'area verificata → cella verde con ✓.",
   exc: "EXCEPTION: trascina sull'area con anomalia → cella rossa con ✗."
 };
 function setMode(m) {
   state.mode = m;
   $("modestrip").className = "modestrip " + m;
-  $("sumpanel").hidden = m !== "sum";
   setStatus(MODE_HELP[m]);
 }
 
@@ -1339,16 +1338,44 @@ async function onSnip(f, withCtrl) {
       }
       const values = ex.nums.map(n => n.v);
       const sum = Math.round(values.reduce((a, b) => a + b, 0) * 1e6) / 1e6;
-      state.sumItems.push({ text: ex.nums.map(n => n.tok).join(" + "), values, value: sum, count: values.length, page: state.page, ...f });
-      drawMarks(); renderSum();
-      let msg = values.length === 1 ? `Aggiunto ${ex.nums[0].tok} (${source}).` : `Aggiunti ${values.length} numeri, somma ${fmtNum(sum)} (${source}).`;
-      if (ex.ignored.length) msg += ` Ignorat${ex.ignored.length === 1 ? "o" : "i"} ${ex.ignored.length} element${ex.ignored.length === 1 ? "o" : "i"} non numeric${ex.ignored.length === 1 ? "o" : "i"}: «${ex.ignored.slice(0, 4).join("», «")}${ex.ignored.length > 4 ? "»…" : "»"}.`;
+      const stext = ex.nums.map(n => n.tok).join(" + ");
+      let msg = values.length === 1 ? `${ex.nums[0].tok}` : `${values.length} numeri (somma ${fmtNum(sum)})`;
+      if (ex.ignored.length) msg += `. Ignorat${ex.ignored.length === 1 ? "o" : "i"} ${ex.ignored.length} element${ex.ignored.length === 1 ? "o" : "i"} non numeric${ex.ignored.length === 1 ? "o" : "i"}: «${ex.ignored.slice(0, 4).join("», «")}${ex.ignored.length > 4 ? "»…" : "»"}`;
       if (layer && layer !== text) {
         const lx = SnipLib.extractNumbers(layer, fmt).nums.map(n => n.v);
         const ls = Math.round(lx.reduce((a, b) => a + b, 0) * 1e6) / 1e6;
-        if (lx.length !== values.length || ls !== sum) msg += ` ATTENZIONE: il testo nascosto del PDF darebbe ${lx.length} numeri, somma ${fmtNum(ls)}: controlla.`;
+        if (lx.length !== values.length || ls !== sum) msg += `. ATTENZIONE: il testo nascosto del PDF darebbe ${lx.length} numeri, somma ${fmtNum(ls)}: controlla`;
       }
-      setStatus(msg, "ok");
+      const row = { page: state.page, ...f, text: stext, value: sum, type: "SUM SNIP" };
+      if (withCtrl) {
+        // CTRL: il numero si aggiunge alla somma della cella (quella appena scritta, oppure quella su cui sei posizionato)
+        const sel = await currentCellAddress();
+        const target = state.lastCell && state.lastNext === sel ? state.lastCell : sel;
+        const existing = state.log.filter(r => r.cell === target && r.type === "SUM SNIP");
+        const id = existing.length ? existing[0].id : nextSnipId();
+        const all = existing.flatMap(sumRowValues).concat(values);
+        const formula = SnipLib.sumFormula(all);
+        await Excel.run(async ctx => {
+          const c = rangeByAddress(ctx, target);
+          c.formulas = [[formula]];
+          c.format.fill.color = COL.sum;
+          await ctx.sync();
+        });
+        await addLog([{ id, cell: target, ...row }]);
+        state.focusId = null; state.searchMarks = [];
+        drawMarks();
+        setStatus(`#${id}: aggiunto ${msg} alla somma di ${target}: ${formula} (${source}).`, "ok");
+      } else {
+        const formula = SnipLib.sumFormula(values);
+        const addr = await writeToCell(formula, COL.sum, true);
+        const id = nextSnipId();
+        await addLog([{ id, cell: addr, ...row }]);
+        state.focusId = null; state.searchMarks = [];
+        drawMarks();
+        state.lastCell = addr;
+        state.lastNext = await moveRight();
+        setStatus(`#${id}: somma in ${addr}: ${formula} (${source}). Per aggiungere altri numeri tieni premuto CTRL mentre trascini. Prossimo snip in ${state.lastNext}.`, "ok");
+      }
       return;
     }
 
