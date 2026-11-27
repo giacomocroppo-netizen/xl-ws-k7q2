@@ -87,6 +87,19 @@
     return String(s || "").replace(/[|¦│┃‖]+/g, " ").replace(/\s+/g, " ").trim();
   }
 
+  // Da un testo con più elementi (numeri, parole, simboli) estrae SOLO i numeri e ignora il resto.
+  // Ritorna { nums: [{tok, v}], ignored: [parole scartate] }.
+  function extractNumbers(text, fmt) {
+    const nums = [], ignored = [];
+    String(text || "").split(/\s+/).filter(Boolean).forEach(tok => {
+      if (/^[-–—−]+$/.test(tok)) return;                  // trattini isolati (celle vuote): non contano
+      if (tok.indexOf("%") !== -1) { ignored.push(tok); return; }   // le percentuali non si sommano
+      const v = parseNumber(tok, fmt);
+      if (v === null) ignored.push(tok); else nums.push({ tok, v });
+    });
+    return { nums, ignored };
+  }
+
   // Formula di somma "tracciabile": =1234.5+200-30
   function sumFormula(values) {
     const fmt = v => String(Math.abs(v));
@@ -136,7 +149,7 @@
     return { x: box.x + u * W, y: box.y + (1 - v) * H };
   }
 
-  const api = { parseNumber, textInRect, cleanRead, sumFormula, bytesToB64, b64ToBytes, chunkString, escapeXml, unescapeXml, mapPoint };
+  const api = { parseNumber, extractNumbers, textInRect, cleanRead, sumFormula, bytesToB64, b64ToBytes, chunkString, escapeXml, unescapeXml, mapPoint };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SnipLib = api;
 })(typeof self !== "undefined" ? self : this);

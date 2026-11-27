@@ -1192,19 +1192,19 @@ async function readArea(f) {
     const o = state.ocr[state.docId];
     if (o && o[state.page] && o[state.page].length) layerSrc = "OCR salvato";
   }
-  if (mode === "text") return { text: layer, source: layerSrc };
+  if (mode === "text") return { text: layer, source: layerSrc, layer };
 
   // verifica con l'OCR su ciò che si vede davvero nel rettangolo
   let r = null;
   try { r = await ocrArea(f); } catch (e) { console.warn("OCR sull'area non riuscito", e); }
-  if (!r) return { text: layer, source: layerSrc + " (OCR di verifica non disponibile)" };
-  if (r.ink < 0.003) return { text: "", source: "" };                          // area vuota
-  if (!r.text) return { text: layer, source: layerSrc };
-  if (!layer) return { text: r.text, source: "OCR sull'area" };
+  if (!r) return { text: layer, source: layerSrc + " (OCR di verifica non disponibile)", layer };
+  if (r.ink < 0.003) return { text: "", source: "", layer: "" };                          // area vuota
+  if (!r.text) return { text: layer, source: layerSrc, layer };
+  if (!layer) return { text: r.text, source: "OCR sull'area", layer };
   const norm = x => x.replace(/\s+/g, "").toLowerCase();
   return norm(layer) === norm(r.text)
-    ? { text: layer, source: layerSrc + ", verificato con OCR" }
-    : { text: r.text, source: "OCR sull'area: il testo nascosto del PDF era diverso («" + layer + "»)" };
+    ? { text: layer, source: layerSrc + ", verificato con OCR", layer }
+    : { text: r.text, source: "OCR sull'area: il testo nascosto del PDF era diverso («" + layer + "»)", layer };
 }
 
 let areaWorker = null;
@@ -1266,7 +1266,7 @@ async function onSnip(f, withCtrl) {
       setStatus(`#${id}: ${isV ? "validazione" : "eccezione"} in ${addr}. Prossimo in ${state.lastNext}.`, "ok");
       return;
     }
-    let { text, source } = await readArea(f);
+    let { text, source, layer } = await readArea(f);
     if (!text) {
       setStatus("Nessun testo trovato nell'area selezionata.", "err");
       text = await askManualText("Nell'area non c'è testo leggibile. Scrivi il testo da inserire nella cella:");
@@ -1276,11 +1276,25 @@ async function onSnip(f, withCtrl) {
     const fmt = $("numfmt").value;
 
     if (state.mode === "sum") {
-      const v = SnipLib.parseNumber(text, fmt);
-      if (v === null) { setStatus(`«${text}» non è un numero valido (formato: ${fmt === "it" ? "italiano" : "inglese"}).`, "err"); return; }
-      state.sumItems.push({ text, value: v, page: state.page, ...f });
+      // dall'area prende SOLO i numeri (anche tanti, in colonna o in riga) e ignora le parole
+      const ex = SnipLib.extractNumbers(text, fmt);
+      if (!ex.nums.length) {
+        const one = SnipLib.parseNumber(text, fmt);
+        if (one === null) { setStatus(`Nell'area non ho trovato numeri validi: «${text.length > 50 ? text.slice(0, 50) + "…" : text}» (formato: ${fmt === "it" ? "italiano" : "inglese"}).`, "err"); return; }
+        ex.nums.push({ tok: text, v: one });
+      }
+      const values = ex.nums.map(n => n.v);
+      const sum = Math.round(values.reduce((a, b) => a + b, 0) * 1e6) / 1e6;
+      state.sumItems.push({ text: ex.nums.map(n => n.tok).join(" + "), values, value: sum, count: values.length, page: state.page, ...f });
       drawMarks(); renderSum();
-      setStatus(`Aggiunto ${text} (${source}).`, "ok");
+      let msg = values.length === 1 ? `Aggiunto ${ex.nums[0].tok} (${source}).` : `Aggiunti ${values.length} numeri, somma ${fmtNum(sum)} (${source}).`;
+      if (ex.ignored.length) msg += ` Ignorat${ex.ignored.length === 1 ? "o" : "i"} ${ex.ignored.length} element${ex.ignored.length === 1 ? "o" : "i"} non numeric${ex.ignored.length === 1 ? "o" : "i"}: «${ex.ignored.slice(0, 4).join("», «")}${ex.ignored.length > 4 ? "»…" : "»"}.`;
+      if (layer && layer !== text) {
+        const lx = SnipLib.extractNumbers(layer, fmt).nums.map(n => n.v);
+        const ls = Math.round(lx.reduce((a, b) => a + b, 0) * 1e6) / 1e6;
+        if (lx.length !== values.length || ls !== sum) msg += ` ATTENZIONE: il testo nascosto del PDF darebbe ${lx.length} numeri, somma ${fmtNum(ls)}: controlla.`;
+      }
+      setStatus(msg, "ok");
       return;
     }
 
@@ -1316,11 +1330,13 @@ async function onSnip(f, withCtrl) {
   }
 }
 
+const fmtNum = n => (Math.round(n * 1e6) / 1e6).toLocaleString("it-IT", { maximumFractionDigits: 6 });
+
 function renderSum() {
   const ul = $("sumlist");
   ul.innerHTML = "";
   state.sumItems.forEach((it, i) => {
-    const li = h("li", { text: `${it.text}  →  ${it.value}` });
+    const li = h("li", { text: it.count > 1 ? `${it.count} numeri: ${it.text.length > 45 ? it.text.slice(0, 45) + "…" : it.text}  →  ${fmtNum(it.value)}` : `${it.text}  →  ${it.value}` });
     li.append(h("button", { text: "✕", title: "Rimuovi", onclick: () => { state.sumItems.splice(i, 1); renderSum(); drawMarks(); } }));
     ul.append(li);
   });
@@ -1333,7 +1349,7 @@ async function writeSum() {
   if (state.busy) return;
   state.busy = true;
   try {
-    const values = state.sumItems.map(i => i.value);
+    const values = state.sumItems.flatMap(i => i.values || [i.value]);
     const formula = SnipLib.sumFormula(values);
     const addr = await writeToCell(formula, COL.sum, true);
     const id = nextSnipId();
