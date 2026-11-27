@@ -1127,8 +1127,11 @@ function setupZoomInput() {
   window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(scheduleRender, 200); });
 }
 
+function hideHoverX() { const x = overlay.querySelector(".hoverx"); if (x) x.remove(); }
+
 function drawMarks() {
   overlay.querySelectorAll(".mark").forEach(n => n.remove());
+  hideHoverX();
   if (!state.docId) return;
   const W = state.viewW, H = state.viewH;
   const add = (r, cls, label) => {
@@ -1185,6 +1188,32 @@ function setupSelection() {
     overlay.append(box);
     e.preventDefault();
   });
+  // passando col cursore sul riquadro di uno snip compare una X per eliminarlo
+  overlay.addEventListener("mousemove", e => {
+    if (start || !state.docId) { hideHoverX(); return; }
+    const r = overlay.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top, W = state.viewW, H = state.viewH, M = 14;
+    let best = null, area = Infinity;
+    state.log.forEach(m => {
+      if (m.docId !== state.docId || m.page !== state.page || m.id === state.focusId) return;
+      const x1 = Math.min(m.u1, m.u2) * W, x2 = Math.max(m.u1, m.u2) * W, y1 = Math.min(m.v1, m.v2) * H, y2 = Math.max(m.v1, m.v2) * H;
+      if (px < x1 - M || px > x2 + M || py < y1 - M || py > y2 + M) return;
+      const a = (x2 - x1) * (y2 - y1);
+      if (a < area) { area = a; best = { id: m.id, x2, y1 }; }
+    });
+    let x = overlay.querySelector(".hoverx");
+    if (!best) { if (x) x.remove(); return; }
+    if (!x) {
+      x = h("button", { class: "markx hoverx", title: "Elimina questo snip (definitivo, come Delete Snip)", text: "✕" });
+      x.addEventListener("mousedown", ev => ev.stopPropagation());
+      x.addEventListener("click", ev => { ev.stopPropagation(); ev.preventDefault(); const id = +x.dataset.id; x.remove(); deleteSnipIds([id]); });
+      overlay.append(x);
+    }
+    x.dataset.id = best.id;
+    x.style.left = (best.x2 - 11) + "px";
+    x.style.top = (best.y1 - 11) + "px";
+  });
+  overlay.addEventListener("mouseleave", () => hideHoverX());
   window.addEventListener("mousemove", e => {
     if (!start) return;
     const p = pos(e);

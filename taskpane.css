@@ -31,16 +31,16 @@ button:hover, .btn:hover { background: #e9e9e9; }
 .mark.val { border-color: #2b9348; background: rgba(43,147,72,.2); }
 .mark.exc { border-color: #d62828; background: rgba(214,40,40,.18); }
 .mark.pending { border-style: dashed; border-color: #e0a800; background: rgba(255,204,0,.15); }
-.mark.focus { border-color: #d9480f; border-width: 3px; background: rgba(217,72,15,.22); box-shadow: 0 0 0 4px rgba(217,72,15,.35); animation: pulse 1.2s ease-in-out 4; z-index: 2; }
+.mark { --c: #2e86de; } .mark.sum { --c: #e0a800; } .mark.val { --c: #2b9348; } .mark.exc { --c: #d62828; }
+.mark.focus { border-width: 3px; border-color: var(--c); box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--c); animation: pulse 1.2s ease-in-out 4; z-index: 2; }
 .mark.dim { opacity: .35; }
 .mark.search { border-color: #e67700; background: rgba(250,204,21,.40); }
-@keyframes pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(217,72,15,.30); } 50% { box-shadow: 0 0 0 9px rgba(217,72,15,.12); } }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--c); } 50% { box-shadow: 0 0 0 4px #fff, 0 0 0 11px var(--c); } }
 .mark b { position: absolute; top: -15px; left: -2px; background: #2e86de; color: #fff; font-size: 10px; padding: 0 4px; border-radius: 3px 3px 0 0; white-space: nowrap; }
 .mark.sum b { background: #b8860b; }
 .mark.val b { background: #2b9348; }
 .mark.exc b { background: #d62828; }
 .mark.pending b { background: #b8860b; }
-.mark.focus b { background: #d9480f; }
 
 .tabs { display: flex; background: #fff; border-bottom: 1px solid #e3e3e3; }
 .tab { flex: 1; border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: #fff; padding: 8px; font-size: 13px; }
@@ -208,3 +208,7 @@ label.tbtn { cursor: pointer; display: inline-block; }
 
 .mark .markx { position: absolute; top: -11px; right: -11px; width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 1px solid #fff; background: #d62828; color: #fff; font-size: 11px; line-height: 1; cursor: pointer; pointer-events: auto; z-index: 5; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 .mark .markx:hover { background: #a4001a; }
+
+.hoverx { position: absolute; }
+.hoverx { width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 1px solid #fff; background: #d62828; color: #fff; font-size: 11px; line-height: 1; cursor: pointer; z-index: 6; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.hoverx:hover { background: #a4001a; }
