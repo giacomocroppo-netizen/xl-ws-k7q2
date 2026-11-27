@@ -170,7 +170,6 @@
         <bt:String id="Snipper.Group.Check.Label" DefaultValue="Review"/>
         <bt:String id="Snipper.Group.Settings.Label" DefaultValue="Settings"/>
         <bt:String id="Snipper.Settings.Label" DefaultValue="Settings"/>
-        <bt:String id="Snipper.Settings.Tip" DefaultValue="Impostazioni, OCR su tutti i documenti e compressione."/>
         <bt:String id="Snipper.Import.Label" DefaultValue="Import Documents"/>
         <bt:String id="Snipper.Organizer.Label" DefaultValue="Organizer"/>
       </bt:ShortStrings>
@@ -185,6 +184,7 @@
         <bt:String id="Snipper.OpenButton.Tip" DefaultValue="Apre il pannello Snipper con i documenti."/>
         <bt:String id="Snipper.Import.Tip" DefaultValue="Importa PDF e immagini nel file Excel (anche trascinandoli)."/>
         <bt:String id="Snipper.Organizer.Tip" DefaultValue="Organizza documenti, cartelle, elenco snip, OCR e compressione."/>
+        <bt:String id="Snipper.Settings.Tip" DefaultValue="Impostazioni, OCR su tutti i documenti e compressione."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
