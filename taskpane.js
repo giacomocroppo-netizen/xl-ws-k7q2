@@ -130,7 +130,13 @@ function initUI() {
   $("docbtn").addEventListener("click", () => togglePop("pop-docs"));
   $("morebtn").addEventListener("click", () => togglePop("pop-more"));
   $("popimport").addEventListener("click", () => { showTab("org"); setOrgTab("docs"); flashDropzone(); });
-  $("folderall").addEventListener("click", () => { state.ui.folderFilter.clear(); renderFolderList(); renderDocList(); });
+  $("folderall").addEventListener("click", () => {
+    const all = FolderLib.options(state.index).map(o => o.path);
+    const allOn = all.length && all.every(p => state.ui.folderFilter.has(p));
+    state.ui.folderFilter.clear();
+    if (!allOn) all.forEach(p => state.ui.folderFilter.add(p));
+    renderFolderList(); renderDocList(); updateDocBtn();
+  });
   $("docfilter2").addEventListener("input", renderDocList);
   document.querySelectorAll(".popclose").forEach(b => b.addEventListener("click", () => closePops()));
   document.addEventListener("click", e => { if (!e.target.closest(".pop, #foldersbtn, #docbtn, #morebtn, #popimport")) closePops(); });
@@ -216,15 +222,17 @@ function togglePop(id) {
 function folderMatches(d) {
   const f = state.ui.folderFilter;
   if (!f.size) return true;
-  return [...f].some(p => d.folder === p || FolderLib.isInside(d.folder, p));
+  return [...f].some(p => p === "" ? d.folder === "" : (d.folder === p || FolderLib.isInside(d.folder, p)));
 }
 const visibleDocs = () => state.index.docs.filter(folderMatches).sort((a, b) => (a.folder + "/" + a.name).localeCompare(b.folder + "/" + b.name, "it"));
 
 function renderFolderList() {
   const box = $("folderlist");
   box.innerHTML = "";
-  const opts = FolderLib.options(state.index).filter(o => o.path !== "");
-  if (!opts.length) { box.append(h("div", { class: "muted wrap pad", text: "Non ci sono cartelle: creale in Organizer." })); return; }
+  const opts = FolderLib.options(state.index);
+  const allOn = opts.every(o => state.ui.folderFilter.has(o.path));
+  $("folderall").textContent = allOn ? "Deseleziona tutto" : "Seleziona tutto";
+  if (opts.length <= 1) box.append(h("div", { class: "muted wrap pad", text: "Non ci sono cartelle: creale in Organizer." }));
   opts.forEach(o => {
     const cb = h("input", { type: "checkbox" });
     cb.checked = state.ui.folderFilter.has(o.path);
