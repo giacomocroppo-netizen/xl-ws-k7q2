@@ -58,9 +58,9 @@
     const picked = [];
     for (const it of items) {
       if (!it.str || !it.str.trim()) continue;
-      const top = it.y - it.h, bottom = it.y;
-      const vOverlap = Math.min(bottom, rect.y2) - Math.max(top, rect.y1);
-      if (vOverlap < it.h * 0.4) continue;                    // deve stare (in buona parte) dentro l'area
+      // il centro della riga di testo deve cadere dentro l'area: così le righe vicine (sopra/sotto) restano fuori
+      const cy = it.y - it.h * 0.4;
+      if (cy < rect.y1 || cy > rect.y2) continue;
       const left = it.x, right = it.x + it.w;
       if (right < rect.x1 || left > rect.x2) continue;
       // Se il blocco è solo in parte dentro l'area, tagliamo i caratteri in proporzione alla larghezza
@@ -79,7 +79,12 @@
     }
     picked.sort((p, q) => (Math.abs(p.y - q.y) > Math.min(p.h, q.h) * 0.5) ? p.y - q.y : p.x - q.x);
     // ricomponi: stessa riga -> spazio, riga diversa -> spazio (poi compattiamo)
-    return picked.map(p => p.s.trim()).join(" ").replace(/\s+/g, " ").trim();
+    return cleanRead(picked.map(p => p.s.trim()).join(" "));
+  }
+
+  // toglie dal testo letto le linee verticali delle tabelle ( | ¦ │ ) e compatta gli spazi
+  function cleanRead(s) {
+    return String(s || "").replace(/[|¦│┃‖]+/g, " ").replace(/\s+/g, " ").trim();
   }
 
   // Formula di somma "tracciabile": =1234.5+200-30
@@ -131,7 +136,7 @@
     return { x: box.x + u * W, y: box.y + (1 - v) * H };
   }
 
-  const api = { parseNumber, textInRect, sumFormula, bytesToB64, b64ToBytes, chunkString, escapeXml, unescapeXml, mapPoint };
+  const api = { parseNumber, textInRect, cleanRead, sumFormula, bytesToB64, b64ToBytes, chunkString, escapeXml, unescapeXml, mapPoint };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SnipLib = api;
 })(typeof self !== "undefined" ? self : this);

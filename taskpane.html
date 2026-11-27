@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=9" />
+  <link rel="stylesheet" href="taskpane.css?v=10" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
@@ -68,6 +68,15 @@
     </div>
 
     <div id="modestrip" class="modestrip snip" title="Modalità attiva: cambia dalla scheda SNIPPER di Excel"></div>
+
+    <div id="manualpanel" class="panel" hidden>
+      <div id="manualmsg"></div>
+      <input id="manualtext" type="text" placeholder="Testo da inserire" />
+      <div class="row">
+        <button id="manualok" class="btn primary">Inserisci</button>
+        <button id="manualcancel" class="btn">Annulla</button>
+      </div>
+    </div>
 
     <div id="sumpanel" class="panel" hidden>
       <div class="row"><strong>SUM SNIP</strong> <span id="sumtotal" class="total">Totale: 0</span></div>
@@ -153,6 +162,12 @@
         <div class="opts">
           <label><input type="checkbox" id="asnumber" checked /> converti in numero (importi utilizzabili nei calcoli)</label>
           <label><input type="checkbox" id="autoopen" checked /> apri lo snip cliccando la cella</label>
+          <label>Lettura del valore:
+            <select id="readmode">
+              <option value="auto">Automatica (testo del PDF, poi OCR)</option>
+              <option value="ocr">Sempre OCR sull'area (più lenta, per documenti imprecisi)</option>
+            </select>
+          </label>
         </div>
       </details>
       <details class="panel" open>
@@ -181,10 +196,10 @@
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js?v=9"></script>
-  <script src="folder-lib.js?v=9"></script>
-  <script src="text-lib.js?v=9"></script>
-  <script src="export-lib.js?v=9"></script>
-  <script src="taskpane.js?v=9"></script>
+  <script src="snip-lib.js?v=10"></script>
+  <script src="folder-lib.js?v=10"></script>
+  <script src="text-lib.js?v=10"></script>
+  <script src="export-lib.js?v=10"></script>
+  <script src="taskpane.js?v=10"></script>
 </body>
 </html>

@@ -1115,6 +1115,7 @@ function setupSelection() {
 //  Lettura dell'area: testo (PDF o OCR salvato), altrimenti OCR al volo
 // =====================================================================
 async function readArea(f) {
+  if ($("readmode").value === "ocr") return { text: await ocrArea(f), source: "OCR sull'area" };
   if (state.pageItems.length) {
     const t = SnipLib.textInRect(state.pageItems, { x1: f.u1 * state.viewW, y1: f.v1 * state.viewH, x2: f.u2 * state.viewW, y2: f.v2 * state.viewH });
     if (t) {
@@ -1125,8 +1126,9 @@ async function readArea(f) {
   return { text: await ocrArea(f), source: "OCR al volo" };
 }
 
+let areaWorker = null;
 async function ocrArea(f) {
-  setStatus("Pagina senza testo: leggo l'area con l'OCR… (suggerimento: usa «Avvia OCR» per tutta la pagina o il documento)");
+  setStatus("Leggo l'area con l'OCR… (la prima volta scarica i dati della lingua)");
   const sx = f.u1 * canvas.width, sy = f.v1 * canvas.height;
   const sw = (f.u2 - f.u1) * canvas.width, sh = (f.v2 - f.v1) * canvas.height;
   const up = Math.max(1, Math.min(3, 300 / Math.max(sh, 1)));
@@ -1136,8 +1138,24 @@ async function ocrArea(f) {
   const c = tmp.getContext("2d");
   c.fillStyle = "#fff"; c.fillRect(0, 0, tmp.width, tmp.height);
   c.drawImage(canvas, sx, sy, sw, sh, 10, 10, sw * up, sh * up);
-  const { data } = await Tesseract.recognize(tmp, "ita+eng");
-  return (data.text || "").replace(/\s+/g, " ").trim();
+  if (!areaWorker) areaWorker = await Tesseract.createWorker(["ita", "eng"]);
+  const { data } = await areaWorker.recognize(tmp);
+  return SnipLib.cleanRead(data.text);
+}
+
+// chiede all'utente il testo da inserire quando nell'area non c'è nulla di leggibile
+function askManualText(msg) {
+  return new Promise(resolve => {
+    const p = $("manualpanel"), i = $("manualtext");
+    $("manualmsg").textContent = msg;
+    i.value = "";
+    p.hidden = false;
+    i.focus();
+    const done = v => { p.hidden = true; $("manualok").onclick = $("manualcancel").onclick = i.onkeydown = null; resolve(v); };
+    $("manualok").onclick = () => done(i.value.trim() || null);
+    $("manualcancel").onclick = () => done(null);
+    i.onkeydown = e => { if (e.key === "Enter") done(i.value.trim() || null); else if (e.key === "Escape") done(null); };
+  });
 }
 
 // =====================================================================
@@ -1160,8 +1178,13 @@ async function onSnip(f, withCtrl) {
       setStatus(`#${id}: ${isV ? "validazione" : "eccezione"} in ${addr}. Prossimo in ${state.lastNext}.`, "ok");
       return;
     }
-    const { text, source } = await readArea(f);
-    if (!text) { setStatus("Nessun testo trovato nell'area selezionata.", "err"); return; }
+    let { text, source } = await readArea(f);
+    if (!text) {
+      setStatus("Nessun testo trovato nell'area selezionata.", "err");
+      text = await askManualText("Nell'area non c'è testo leggibile. Scrivi il testo da inserire nella cella:");
+      if (!text) { setStatus("Snip annullato.", "err"); return; }
+      source = "testo inserito a mano";
+    }
     const fmt = $("numfmt").value;
 
     if (state.mode === "sum") {
@@ -1717,11 +1740,42 @@ async function deleteSnipIds(ids) {
   }
 }
 
+const colNum = c => c.split("").reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+
+// "Foglio1!A1:B3,Foglio1!D5" -> aree {sheet, c1, r1, c2, r2}
+function parseAreas(addr) {
+  const areas = [];
+  String(addr).split(/,(?=(?:[^']*'[^']*')*[^']*$)/).forEach(part => {
+    const m = /^(?:(.*)!)?\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/.exec(part.trim());
+    if (!m) return;
+    const sheet = (m[1] || "").replace(/^'(.*)'$/, "$1").replace(/''/g, "'");
+    const c1 = colNum(m[2]), r1 = +m[3], c2 = m[4] ? colNum(m[4]) : c1, r2 = m[5] ? +m[5] : r1;
+    areas.push({ sheet, c1: Math.min(c1, c2), r1: Math.min(r1, r2), c2: Math.max(c1, c2), r2: Math.max(r1, r2) });
+  });
+  return areas;
+}
+
+function cellInAreas(cellAddr, areas) {
+  const a = parseAreas(cellAddr)[0];
+  if (!a) return false;
+  return areas.some(r => r.sheet === a.sheet && a.c1 >= r.c1 && a.c1 <= r.c2 && a.r1 >= r.r1 && a.r1 <= r.r2);
+}
+
+async function selectedAddress() {
+  return Excel.run(async ctx => {
+    const r = ctx.workbook.getSelectedRanges();
+    r.load("address");
+    await ctx.sync();
+    return r.address;
+  });
+}
+
 async function deleteOnSelection() {
   try {
-    const addr = await currentCellAddress();
-    const ids = [...new Set(state.log.filter(r => r.cell === addr).map(r => r.id))];
-    if (!ids.length) { setStatus(`Nessuno snip sulla cella ${addr}.`, "err"); return; }
+    const addr = await selectedAddress();
+    const areas = parseAreas(addr);
+    const ids = [...new Set(state.log.filter(r => cellInAreas(r.cell, areas)).map(r => r.id))];
+    if (!ids.length) { setStatus(`Nessuno snip nelle celle selezionate (${addr}).`, "err"); return; }
     await deleteSnipIds(ids);
   } catch (e) { setStatus("Errore: " + (e.message || e), "err"); }
 }
