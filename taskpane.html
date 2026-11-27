@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=7" />
+  <link rel="stylesheet" href="taskpane.css?v=8" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
@@ -28,6 +28,7 @@
     <div class="toolbar">
       <button id="foldersbtn" class="tbtn" title="Filtra i documenti per cartella">Folders ▾</button>
       <button id="docbtn" class="tbtn grow" title="Scegli il documento">(nessun documento) ▾</button>
+      <label class="tbtn sq plus" for="import" title="Importa documenti (PDF, PNG, JPG)">＋</label>
       <input id="q" type="search" placeholder="Search…" title="Cerca una parola o un numero in tutti i documenti (Invio)" />
       <span class="navbox"><button id="snipprev" class="tbtn sq" title="Snip precedente della cella" hidden>◀</button><span id="snipnav" class="muted" hidden></span><button id="snipnext" class="tbtn sq" title="Snip successivo della cella" hidden>▶</button></span>
       <button id="morebtn" class="tbtn sq" title="Altre opzioni">⋯</button>
@@ -85,7 +86,7 @@
         <div id="overlay"></div>
       </div>
       <div id="empty" class="empty">
-        <div class="bigdrop">📥<br>Trascina qui un documento (o una cartella)<br><span class="muted">oppure usa «Import Documents» nella barra di Excel</span></div>
+        <div class="bigdrop">📥<br>Trascina qui un documento (o una cartella)<br><div style="margin-top:8px"><label class="btn primary" for="import">＋ Importa documenti</label> <label class="btn" for="importdir">Importa cartella</label></div><span class="muted">oppure usa «Import Documents» nella barra di Excel</span></div>
       </div>
     </div>
     <div id="pagebadge" class="pagebadge" hidden><input id="pageinput" type="number" min="1" value="1" /> / <span id="pagetotal">–</span></div>
@@ -181,10 +182,10 @@
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js?v=7"></script>
-  <script src="folder-lib.js?v=7"></script>
-  <script src="text-lib.js?v=7"></script>
-  <script src="export-lib.js?v=7"></script>
-  <script src="taskpane.js?v=7"></script>
+  <script src="snip-lib.js?v=8"></script>
+  <script src="folder-lib.js?v=8"></script>
+  <script src="text-lib.js?v=8"></script>
+  <script src="export-lib.js?v=8"></script>
+  <script src="taskpane.js?v=8"></script>
 </body>
 </html>
