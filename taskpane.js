@@ -142,7 +142,7 @@ function initUI() {
   $("dlann").addEventListener("click", () => { const d = curDoc(); if (d) downloadAnnotated(d); });
   $("openset").addEventListener("click", () => showTab("set"));
   $("snipdel").addEventListener("click", () => deleteOnSelection());
-  ["lfilter", "ltype", "ldoc"].forEach(i => $(i).addEventListener("input", renderList));
+  ["lfilter", "ltype"].forEach(i => $(i).addEventListener("input", renderList));
   $("zoomin").addEventListener("click", () => zoom(1.2));
   $("zoomout").addEventListener("click", () => zoom(1 / 1.2));
   $("findsnip").addEventListener("click", findSnipFromCell);
@@ -159,9 +159,27 @@ function initUI() {
   $("snipprev").addEventListener("click", () => stepNav(-1));
   $("snipnext").addEventListener("click", () => stepNav(1));
   setupZoomInput();
-  $("selmovego").addEventListener("click", () => { FolderLib.moveDocs(state.index, [...state.ui.selected], $("selmove").value); state.ui.selected.clear(); saveIndex(); renderOrg(); });
-  $("selclear").addEventListener("click", () => { state.ui.selected.clear(); renderOrg(); });
-  armConfirm($("seldelete"), "🗑 Elimina", async () => { const ids = [...state.ui.selected]; for (const id of ids) { const d = docById(id); if (d) await removeDoc(d, true); } state.ui.selected.clear(); refreshAll(); });
+  $("selclear").addEventListener("click", () => { state.ui.selected.clear(); selFolders().clear(); renderOrg(); });
+  $("newfolder").addEventListener("click", () => { state.ui.creatingIn = state.ui.currentFolder; $("docfilter").value = ""; renderOrg(); });
+  $("selcompress").addEventListener("click", () => {
+    const set = new Map();
+    [...state.ui.selected].forEach(id => { const d = docById(id); if (d) set.set(d.id, d); });
+    [...selFolders()].forEach(p => docsUnder(p).forEach(d => set.set(d.id, d)));
+    compressDocs([...set.values()], $("cmplevel").value);
+  });
+  armConfirm($("seldelete"), "🗑 Elimina", async () => {
+    const ids = [...state.ui.selected];
+    for (const id of ids) { const d = docById(id); if (d) await removeDoc(d, true); }
+    const fl = [...selFolders()].sort((x, y) => y.length - x.length);
+    fl.forEach(p => {
+      if (!state.index.folders.includes(p)) return;
+      FolderLib.deleteFolder(state.index, p);
+      if (FolderLib.isInside(state.ui.currentFolder, p)) state.ui.currentFolder = FolderLib.parentOf(p);
+    });
+    state.ui.selected.clear(); selFolders().clear();
+    if (fl.length) await saveIndex();
+    refreshAll();
+  });
   try { $("autoopen").checked = localStorage.getItem("snipper.autoopen") !== "0"; } catch (e) { /* ok */ }
   $("autoopen").addEventListener("change", () => { try { localStorage.setItem("snipper.autoopen", $("autoopen").checked ? "1" : "0"); } catch (e) { /* ok */ } });
   setMode("snip");
@@ -186,7 +204,7 @@ function armConfirm(btn, label, fn) {
 function showTab(t) {
   const org = t === "org" || t === "list" || t === "set";
   $("orgtabs").hidden = t === "set";
-  $("orgtitle").textContent = t === "set" ? "Settings" : "Organizer";
+  $("orgtitle").textContent = t === "set" ? "Settings" : "";
   $("view-snip").hidden = org;
   $("view-org").hidden = !org;
   closePops();
@@ -674,23 +692,49 @@ function snipCount(docId) {
   return new Set(state.log.filter(r => r.docId === docId).map(r => r.id)).size;
 }
 
+function findNode(node, path) {
+  if (node.path === path) return node;
+  for (const c of node.children) { const r = findNode(c, path); if (r) return r; }
+  return null;
+}
+
+function docsUnder(path) { return state.index.docs.filter(d => FolderLib.isInside(d.folder, path)); }
+
+function selFolders() { return state.ui.selectedFolders || (state.ui.selectedFolders = new Set()); }
+
 function renderOrg() {
   const q = ($("docfilter").value || "").toLowerCase().trim();
   const total = state.index.docs.reduce((a, d) => a + d.size, 0);
   $("orgsummary").textContent = state.index.docs.length
     ? `${state.index.docs.length} documenti · ${state.index.folders.length} cartelle · ${fmtSize(total)} incorporati nel file`
     : "Nessun documento importato.";
-  $("target").textContent = state.ui.currentFolder ? "📁 " + state.ui.currentFolder : "📂 cartella principale";
+
+  const tree = FolderLib.buildTree(state.index);
+  let cur = findNode(tree, state.ui.currentFolder);
+  if (!cur) { state.ui.currentFolder = ""; cur = tree; }
+
+  // percorso (come la barra degli indirizzi di Esplora risorse)
+  const cr = $("crumb");
+  cr.innerHTML = "";
+  const segs = [{ path: "", label: "🏠 Principale" }];
+  FolderLib.cleanPath(state.ui.currentFolder).split("/").filter(Boolean).forEach((p, i, arr) => segs.push({ path: arr.slice(0, i + 1).join("/"), label: p }));
+  segs.forEach((s, i) => {
+    if (i) cr.append(h("span", { class: "csep", text: "›" }));
+    const el = h("span", { class: "cseg" + (i === segs.length - 1 ? " last" : ""), text: s.label, onclick: () => { state.ui.currentFolder = s.path; renderOrg(); } });
+    attachDrop(el, s.path);
+    cr.append(el);
+  });
 
   // barra della selezione
-  const sel = state.ui.selected;
+  const sel = state.ui.selected, selF = selFolders();
   [...sel].forEach(id => { if (!docById(id)) sel.delete(id); });
-  $("selbar").hidden = !sel.size;
-  if (sel.size) {
-    $("selcount").textContent = `${sel.size} selezionati`;
-    const m = $("selmove");
-    m.innerHTML = "";
-    FolderLib.options(state.index).forEach(o => m.appendChild(new Option(o.label, o.path)));
+  [...selF].forEach(p => { if (!state.index.folders.includes(p)) selF.delete(p); });
+  $("selbar").hidden = !(sel.size || selF.size);
+  if (sel.size || selF.size) {
+    const parts = [];
+    if (selF.size) parts.push(`${selF.size} ${selF.size === 1 ? "cartella" : "cartelle"}`);
+    if (sel.size) parts.push(`${sel.size} ${sel.size === 1 ? "documento" : "documenti"}`);
+    $("selcount").textContent = parts.join(" + ");
   }
 
   const box = $("tree");
@@ -701,28 +745,41 @@ function renderOrg() {
     found.sort((a, b) => a.name.localeCompare(b.name, "it")).forEach(d => box.append(docCard(d, true)));
     return;
   }
-  const tree = FolderLib.buildTree(state.index);
-  box.append(folderRow(tree, 0, true));
-  if (state.ui.creatingIn === "") box.append(newFolderInput("", 1));
-  if (state.ui.expanded.has("") || !state.ui.expanded.size) renderChildren(tree, 1, box);
+  if (state.ui.creatingIn !== null && state.ui.creatingIn !== undefined) box.append(newFolderInput(state.ui.creatingIn));
+  cur.children.forEach(c => box.append(folderItem(c)));
+  cur.docs.forEach(d => box.append(docCard(d, false)));
+  if (!cur.children.length && !cur.docs.length && state.ui.creatingIn === null) box.append(h("div", { class: "muted pad", text: "Cartella vuota. Trascina qui documenti o cartelle, oppure usa Importa." }));
 }
 
-function renderChildren(node, depth, box) {
-  node.children.forEach(c => {
-    box.append(folderRow(c, depth, false));
-    if (state.ui.creatingIn === c.path) box.append(newFolderInput(c.path, depth + 1));
-    if (!state.ui.collapsed || !state.ui.collapsed.has(c.path)) renderChildren(c, depth + 1, box);
+// trascinare documenti o cartelle su una cartella (o sul percorso) per spostarli
+function attachDrop(el, path) {
+  el.addEventListener("dragover", e => {
+    const t = Array.from(e.dataTransfer.types || []);
+    if (t.includes("text/x-snipper-doc") || t.includes("text/x-snipper-folder")) { e.preventDefault(); el.classList.add("dragover"); }
   });
-  node.docs.forEach(d => { const w = h("div", { style: `margin-left:${(depth) * 14}px` }, docCard(d, false)); box.append(w); });
+  el.addEventListener("dragleave", () => el.classList.remove("dragover"));
+  el.addEventListener("drop", e => {
+    el.classList.remove("dragover");
+    const ids = e.dataTransfer.getData("text/x-snipper-doc");
+    const fol = e.dataTransfer.getData("text/x-snipper-folder");
+    if (ids) { e.preventDefault(); FolderLib.moveDocs(state.index, ids.split(","), path); state.ui.selected.clear(); saveIndex(); refreshAll(); }
+    else if (fol) {
+      e.preventDefault();
+      if (FolderLib.moveFolder(state.index, fol, path) === null) setStatus("Non posso spostare la cartella lì.", "err");
+      else { selFolders().clear(); saveIndex(); refreshAll(); }
+    }
+  });
 }
 
-function folderRow(node, depth, isRoot) {
-  state.ui.collapsed = state.ui.collapsed || new Set();
-  const collapsed = state.ui.collapsed.has(node.path);
-  const hasKids = node.children.length || node.docs.length;
-  const row = h("div", { class: "frow" + (state.ui.currentFolder === node.path ? " cur" : ""), style: `margin-left:${depth * 14}px` });
-  row.append(h("span", { class: "twisty", text: isRoot ? "" : (hasKids ? (collapsed ? "▸" : "▾") : ""), onclick: ev => { ev.stopPropagation(); if (collapsed) state.ui.collapsed.delete(node.path); else state.ui.collapsed.add(node.path); renderOrg(); } }));
-  if (state.ui.renaming === node.path && !isRoot) {
+function folderItem(node) {
+  const selF = selFolders();
+  const row = h("div", { class: "frow" + (selF.has(node.path) ? " sel" : "") });
+  const cb = h("input", { type: "checkbox", title: "Seleziona la cartella" });
+  cb.checked = selF.has(node.path);
+  cb.addEventListener("click", ev => ev.stopPropagation());
+  cb.addEventListener("change", () => { if (cb.checked) selF.add(node.path); else selF.delete(node.path); renderOrg(); });
+  row.append(cb);
+  if (state.ui.renaming === node.path) {
     const inp = h("input", { value: node.name });
     const done = ok => {
       const v = inp.value;
@@ -730,7 +787,7 @@ function folderRow(node, depth, isRoot) {
       if (ok && v.trim() && v.trim() !== node.name) {
         const np = FolderLib.renameFolder(state.index, node.path, v);
         if (np === null) setStatus("Esiste già una cartella con quel nome.", "err");
-        else { if (state.ui.currentFolder === node.path || FolderLib.isInside(state.ui.currentFolder, node.path)) state.ui.currentFolder = np + state.ui.currentFolder.slice(node.path.length); saveIndex(); refreshAll(); return; }
+        else { if (state.ui.currentFolder === node.path || FolderLib.isInside(state.ui.currentFolder, node.path)) state.ui.currentFolder = np + state.ui.currentFolder.slice(node.path.length); selF.clear(); saveIndex(); refreshAll(); return; }
       }
       renderOrg();
     };
@@ -740,58 +797,37 @@ function folderRow(node, depth, isRoot) {
     row.append(h("span", { text: "📁" }), inp);
     setTimeout(() => { inp.focus(); inp.select(); }, 0);
   } else {
-    row.append(h("span", { text: isRoot ? "📂" : "📁" }),
-      h("span", { class: "fname", text: isRoot ? "Tutti i documenti" : node.name }),
+    row.append(h("span", { text: "📁" }),
+      h("span", { class: "fname", text: node.name }),
       h("span", { class: "fcount", text: String(FolderLib.countDocs(node)) }));
   }
   const icons = h("span", { class: "ficons" });
-  icons.append(h("button", { title: "Nuova sottocartella", text: "＋", onclick: ev => { ev.stopPropagation(); state.ui.creatingIn = node.path; state.ui.collapsed.delete(node.path); renderOrg(); } }));
-  if (!isRoot) {
-    icons.append(h("button", { title: "Rinomina", text: "✎", onclick: ev => { ev.stopPropagation(); state.ui.renaming = node.path; renderOrg(); } }));
-    const del = h("button", { title: "Elimina cartella (il contenuto passa alla cartella superiore)", text: "🗑" });
-    armConfirm(del, "🗑", () => {
-      FolderLib.deleteFolder(state.index, node.path);
-      if (FolderLib.isInside(state.ui.currentFolder, node.path)) state.ui.currentFolder = FolderLib.parentOf(node.path);
-      saveIndex(); refreshAll();
-      setStatus(`Cartella «${node.name}» eliminata: i documenti sono passati alla cartella superiore.`, "ok");
-    });
-    del.addEventListener("click", ev => ev.stopPropagation());
-    icons.append(del);
-  }
+  icons.append(h("button", { title: "Rinomina", text: "✎", onclick: ev => { ev.stopPropagation(); state.ui.renaming = node.path; renderOrg(); } }));
+  const del = h("button", { title: "Elimina cartella (il contenuto passa alla cartella superiore)", text: "🗑" });
+  armConfirm(del, "🗑", () => {
+    FolderLib.deleteFolder(state.index, node.path);
+    if (FolderLib.isInside(state.ui.currentFolder, node.path)) state.ui.currentFolder = FolderLib.parentOf(node.path);
+    selF.clear();
+    saveIndex(); refreshAll();
+    setStatus(`Cartella «${node.name}» eliminata: i documenti sono passati alla cartella superiore.`, "ok");
+  });
+  del.addEventListener("click", ev => ev.stopPropagation());
+  icons.append(del);
   row.append(icons);
   row.addEventListener("click", () => { state.ui.currentFolder = node.path; renderOrg(); });
-
-  // trascinare documenti o cartelle su una cartella per spostarli
-  row.addEventListener("dragover", e => {
-    const t = Array.from(e.dataTransfer.types || []);
-    if (t.includes("text/x-snipper-doc") || t.includes("text/x-snipper-folder")) { e.preventDefault(); row.classList.add("dragover"); }
-  });
-  row.addEventListener("dragleave", () => row.classList.remove("dragover"));
-  row.addEventListener("drop", e => {
-    row.classList.remove("dragover");
-    const ids = e.dataTransfer.getData("text/x-snipper-doc");
-    const fol = e.dataTransfer.getData("text/x-snipper-folder");
-    if (ids) { e.preventDefault(); FolderLib.moveDocs(state.index, ids.split(","), node.path); state.ui.selected.clear(); saveIndex(); refreshAll(); }
-    else if (fol) {
-      e.preventDefault();
-      if (FolderLib.moveFolder(state.index, fol, node.path) === null) setStatus("Non posso spostare la cartella lì.", "err");
-      else { saveIndex(); refreshAll(); }
-    }
-  });
-  if (!isRoot) {
-    row.setAttribute("draggable", "true");
-    row.addEventListener("dragstart", e => { e.dataTransfer.setData("text/x-snipper-folder", node.path); e.dataTransfer.effectAllowed = "move"; });
-  }
+  attachDrop(row, node.path);
+  row.setAttribute("draggable", "true");
+  row.addEventListener("dragstart", e => { e.dataTransfer.setData("text/x-snipper-folder", node.path); e.dataTransfer.effectAllowed = "move"; });
   return row;
 }
 
-function newFolderInput(parent, depth) {
+function newFolderInput(parent) {
   const inp = h("input", { placeholder: "Nome della nuova cartella" });
-  const row = h("div", { class: "frow", style: `margin-left:${depth * 14}px` }, h("span", { class: "twisty" }), h("span", { text: "📁" }), inp);
+  const row = h("div", { class: "frow" }, h("span", { text: "📁" }), inp);
   const done = ok => {
     const v = inp.value.trim();
     state.ui.creatingIn = null;
-    if (ok && v) { const p = FolderLib.addFolder(state.index, parent, v); state.ui.currentFolder = p; saveIndex(); refreshAll(); }
+    if (ok && v) { FolderLib.addFolder(state.index, parent, v); saveIndex(); refreshAll(); }
     else renderOrg();
   };
   inp.addEventListener("keydown", e => { if (e.key === "Enter") done(true); else if (e.key === "Escape") done(false); });
@@ -1706,30 +1742,43 @@ const TAGS = { "SNIP": ["snip", "Snip"], "SUM SNIP": ["sum", "Sum"], "VALIDATION
 
 function renderList() {
   const all = snipGroups();
-  const docSel = $("ldoc");
-  const keep = docSel.value;
-  docSel.innerHTML = "";
-  docSel.appendChild(new Option("Tutti i documenti", ""));
-  [...new Set(all.map(g => g.docId))].forEach(id => { const d = docById(id); docSel.appendChild(new Option(d ? d.name : (all.find(g => g.docId === id).file + " (rimosso)"), id)); });
-  docSel.value = [...docSel.options].some(o => o.value === keep) ? keep : "";
-  const q = ($("lfilter").value || "").toLowerCase().trim(), tp = $("ltype").value, dc = docSel.value;
-  const rows = all.filter(g => (!tp || g.type === tp) && (!dc || g.docId === dc) &&
-    (!q || (g.cell + " " + g.file + " " + g.texts.join(" ") + " #" + g.id).toLowerCase().includes(q)));
-  $("lsummary").textContent = `${rows.length} di ${all.length} snip`;
+  const q = ($("lfilter").value || "").toLowerCase().trim(), tp = $("ltype").value;
+  const byDoc = new Map();
+  all.forEach(g => { if (!byDoc.has(g.docId)) byDoc.set(g.docId, []); byDoc.get(g.docId).push(g); });
+  const entries = state.index.docs.map(d => ({ doc: d, name: d.name, folder: d.folder, snips: byDoc.get(d.id) || [] }));
+  byDoc.forEach((snips, id) => { if (!docById(id)) entries.push({ doc: null, name: snips[0].file + " (rimosso)", folder: "", snips }); });
+  entries.sort((a, b) => a.name.localeCompare(b.name, "it", { numeric: true }));
   const ul = $("llist");
   ul.innerHTML = "";
-  rows.forEach(g => {
-    const [cls, lab] = TAGS[g.type] || ["snip", g.type];
-    const del = h("button", { text: "🗑", title: "Elimina questo snip (definitivo)" });
-    armConfirm(del, "🗑", () => deleteSnipIds([g.id]));
-    del.addEventListener("click", ev => ev.stopPropagation());
-    const txt = g.texts.join(" + ");
-    const li = h("li", {}, h("span", { class: "lid", text: "#" + g.id }), h("span", { class: "tag " + cls, text: lab }),
-      h("div", { class: "lbody" }, h("div", { text: g.cell + "  ·  " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt) }),
-        h("div", { class: "lmeta", text: `${g.file} · pag. ${g.page}` })), del);
-    li.addEventListener("click", () => goToSnip(g));
-    ul.append(li);
+  let nDocs = 0, nSnips = 0;
+  entries.forEach(e => {
+    let snips = e.snips;
+    if (tp === "__none") { if (snips.length) return; }
+    else if (tp) { snips = snips.filter(g => g.type === tp); if (!snips.length) return; }
+    if (q) {
+      const nameHit = (e.name + " " + e.folder).toLowerCase().includes(q);
+      if (!nameHit) { snips = snips.filter(g => (g.cell + " " + g.texts.join(" ") + " #" + g.id).toLowerCase().includes(q)); if (!snips.length) return; }
+    }
+    nDocs++; nSnips += snips.length;
+    const head = h("li", { class: "ldoc" },
+      h("div", { class: "lbody" }, h("div", { class: "lname", text: (e.doc && e.doc.type !== "pdf" ? "🖼️ " : "📄 ") + e.name }),
+        h("div", { class: "lmeta", text: (e.folder ? "📁 " + e.folder + " · " : "") + `${e.snips.length} snip` })));
+    if (e.doc) head.addEventListener("click", () => { showTab("snip"); openDoc(e.doc.id); });
+    ul.append(head);
+    snips.forEach(g => {
+      const [cls, lab] = TAGS[g.type] || ["snip", g.type];
+      const del = h("button", { text: "🗑", title: "Elimina questo snip (definitivo)" });
+      armConfirm(del, "🗑", () => deleteSnipIds([g.id]));
+      del.addEventListener("click", ev => ev.stopPropagation());
+      const txt = g.texts.join(" + ");
+      const li = h("li", { class: "lsnip" }, h("span", { class: "lid", text: "#" + g.id }), h("span", { class: "tag " + cls, text: lab }),
+        h("div", { class: "lbody" }, h("div", { text: g.cell + "  ·  " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt) }),
+          h("div", { class: "lmeta", text: `pag. ${g.page}` })), del);
+      li.addEventListener("click", () => goToSnip(g));
+      ul.append(li);
+    });
   });
+  $("lsummary").textContent = entries.length ? `${nDocs} documenti · ${nSnips} snip` : "Nessun documento importato.";
 }
 
 async function selectCell(addr) {

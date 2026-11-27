@@ -177,3 +177,19 @@ label.tbtn { cursor: pointer; display: inline-block; }
 .qbox #q::-webkit-search-cancel-button { display: none; }
 #qgo { position: absolute; right: 2px; top: 2px; bottom: 2px; width: 26px; border: 0; background: transparent; color: #444; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; }
 #qgo:hover { color: #2e86de; }
+
+[hidden] { display: none !important; }
+.crumbbar { justify-content: space-between; flex-wrap: nowrap; }
+.crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; font-size: 12px; }
+.cseg { cursor: pointer; padding: 2px 5px; border-radius: 4px; word-break: break-all; }
+.cseg:hover { background: #eef2f6; }
+.cseg.last { font-weight: 700; }
+.cseg.dragover { outline: 2px dashed #217346; background: #e8f6ee; }
+.csep { color: #999; }
+.frow.sel { background: #e7f1fb; }
+.frow input[type=checkbox] { margin: 0 2px 0 0; flex: none; }
+.frow { padding: 5px 6px; }
+.llist li.ldoc { background: #f4f6f8; cursor: pointer; font-weight: 600; border-top: 1px solid #d5d9de; }
+.llist li.ldoc .lname { word-break: break-all; }
+.llist li.lsnip { padding-left: 18px; }
+#orgsummary { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }

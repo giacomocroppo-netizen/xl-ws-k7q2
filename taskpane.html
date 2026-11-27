@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=18" />
+  <link rel="stylesheet" href="taskpane.css?v=19" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
@@ -109,8 +109,8 @@
       <strong id="orgtitle">Organizer</strong>
     </div>
     <div class="tabs" id="orgtabs">
-      <button id="stab-docs" class="tab active">📁 Documenti</button>
-      <button id="stab-list" class="tab">📋 Snip</button>
+      <button id="stab-docs" class="tab active">📁 Organizer</button>
+      <button id="stab-list" class="tab">📋 Documenti</button>
     </div>
 
     <div id="org-docs">
@@ -124,14 +124,14 @@
       <div class="bar">
         <input id="docfilter" type="search" placeholder="Filtra per nome documento…" />
       </div>
-      <div class="bar small">
-        <span>Importa in: <strong id="target">📂 cartella principale</strong></span>
+      <div class="bar small crumbbar">
+        <div id="crumb" class="crumb"></div>
+        <button id="newfolder" class="btn" title="Crea una nuova cartella qui">＋ Cartella</button>
       </div>
       <div id="selbar" class="bar small selbar" hidden>
         <span id="selcount"></span>
-        <select id="selmove" title="Sposta i documenti selezionati"></select>
-        <button id="selmovego">Sposta</button>
         <button id="seldelete" class="danger">🗑 Elimina</button>
+        <button id="selcompress" title="Comprime i documenti selezionati e quelli dentro le cartelle selezionate, secondo le impostazioni di compressione">🗜 Comprimi</button>
         <button id="selclear">Deseleziona</button>
       </div>
       <div id="orgsummary" class="muted pad"></div>
@@ -140,7 +140,7 @@
 
     <div id="org-list" hidden>
       <div class="bar">
-        <input id="lfilter" type="search" placeholder="Filtra: testo, cella, documento…" />
+        <input id="lfilter" type="search" placeholder="Filtra: documento, testo, cella…" />
       </div>
       <div class="bar small">
         <select id="ltype">
@@ -149,8 +149,8 @@
           <option value="SUM SNIP">Sum snip</option>
           <option value="VALIDATION">Validation</option>
           <option value="EXCEPTION">Exception</option>
+          <option value="__none">Senza snip</option>
         </select>
-        <select id="ldoc"></select>
       </div>
       <div id="lsummary" class="muted pad"></div>
       <ul id="llist" class="llist"></ul>
@@ -198,10 +198,10 @@
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js?v=18"></script>
-  <script src="folder-lib.js?v=18"></script>
-  <script src="text-lib.js?v=18"></script>
-  <script src="export-lib.js?v=18"></script>
-  <script src="taskpane.js?v=18"></script>
+  <script src="snip-lib.js?v=19"></script>
+  <script src="folder-lib.js?v=19"></script>
+  <script src="text-lib.js?v=19"></script>
+  <script src="export-lib.js?v=19"></script>
+  <script src="taskpane.js?v=19"></script>
 </body>
 </html>
