@@ -388,7 +388,7 @@ function itemsFromContent(tc, vp) {
     const t = pdfjsLib.Util.transform(vp.transform, it.transform);
     const w = it.width * vp.scale;
     const sx = Math.hypot(t[0], t[1]) || 1, sy = Math.hypot(t[2], t[3]) || 1;
-    const dx = t[0] / sx, dy = t[1] / sx, ux = -t[2] / sy, uy = -t[3] / sy;
+    const dx = t[0] / sx, dy = t[1] / sx, ux = t[2] / sy, uy = t[3] / sy;
     const hh = sy;
     const xs = [t[4], t[4] + dx * w, t[4] + ux * hh, t[4] + dx * w + ux * hh];
     const ys = [t[5], t[5] + dy * w, t[5] + uy * hh, t[5] + dy * w + uy * hh];
