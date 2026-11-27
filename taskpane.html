@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=16" />
+  <link rel="stylesheet" href="taskpane.css?v=17" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
@@ -105,12 +105,11 @@
   <section id="view-org" hidden>
     <div class="bar">
       <button id="orgclose" class="btn">← Torna al documento</button>
-      <strong>Organizer</strong>
+      <strong id="orgtitle">Organizer</strong>
     </div>
-    <div class="tabs">
+    <div class="tabs" id="orgtabs">
       <button id="stab-docs" class="tab active">📁 Documenti</button>
       <button id="stab-list" class="tab">📋 Snip</button>
-      <button id="stab-tools" class="tab">🛠 Strumenti</button>
     </div>
 
     <div id="org-docs">
@@ -198,10 +197,10 @@
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js?v=16"></script>
-  <script src="folder-lib.js?v=16"></script>
-  <script src="text-lib.js?v=16"></script>
-  <script src="export-lib.js?v=16"></script>
-  <script src="taskpane.js?v=16"></script>
+  <script src="snip-lib.js?v=17"></script>
+  <script src="folder-lib.js?v=17"></script>
+  <script src="text-lib.js?v=17"></script>
+  <script src="export-lib.js?v=17"></script>
+  <script src="taskpane.js?v=17"></script>
 </body>
 </html>

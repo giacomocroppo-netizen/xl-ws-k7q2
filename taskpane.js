@@ -81,6 +81,7 @@ Office.onReady(async info => {
     Office.actions.associate("setModeVal", ribbon(async () => { showTab("snip"); setMode("val"); await showPane(); }));
     Office.actions.associate("setModeExc", ribbon(async () => { showTab("snip"); setMode("exc"); await showPane(); }));
     Office.actions.associate("openOrganizer", ribbon(async () => { showTab("org"); setOrgTab("docs"); await showPane(); }));
+    Office.actions.associate("openSettings", ribbon(async () => { showTab("set"); await showPane(); }));
     Office.actions.associate("importDocs", ribbon(async () => { showTab("org"); setOrgTab("docs"); await showPane(); flashDropzone(); }));
     Office.actions.associate("deleteSnip", ribbon(async () => { await showPane(); await deleteOnSelection(); }));
   } catch (e) { console.warn("Comandi della barra non disponibili", e); }
@@ -125,7 +126,7 @@ function initUI() {
     importItems(f);
   });
   $("orgclose").addEventListener("click", () => showTab("snip"));
-  ["docs", "list", "tools"].forEach(k => $("stab-" + k).addEventListener("click", () => setOrgTab(k)));
+  ["docs", "list"].forEach(k => $("stab-" + k).addEventListener("click", () => setOrgTab(k)));
   $("foldersbtn").addEventListener("click", () => togglePop("pop-folders"));
   $("docbtn").addEventListener("click", () => togglePop("pop-docs"));
   $("morebtn").addEventListener("click", () => togglePop("pop-more"));
@@ -182,17 +183,20 @@ function armConfirm(btn, label, fn) {
 }
 
 function showTab(t) {
-  const org = t === "org" || t === "list";
+  const org = t === "org" || t === "list" || t === "set";
+  $("orgtabs").hidden = t === "set";
+  $("orgtitle").textContent = t === "set" ? "Settings" : "Organizer";
   $("view-snip").hidden = org;
   $("view-org").hidden = !org;
   closePops();
   if (t === "list") setOrgTab("list");
+  if (t === "set") setOrgTab("tools");
   if (t === "org") renderOrg();
   if (t === "snip" && state.docId) scheduleRender();
 }
 
 function setOrgTab(k) {
-  ["docs", "list", "tools"].forEach(x => { $("org-" + x).hidden = x !== k; $("stab-" + x).classList.toggle("active", x === k); });
+  ["docs", "list", "tools"].forEach(x => { $("org-" + x).hidden = x !== k; const b = $("stab-" + x); if (b) b.classList.toggle("active", x === k); });
   if (k === "docs") renderOrg();
   if (k === "list") renderList();
 }
