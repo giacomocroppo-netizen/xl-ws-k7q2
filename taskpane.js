@@ -139,14 +139,8 @@ function initUI() {
   $("ocrcur").addEventListener("click", () => { const d = curDoc(); if (!d) return setStatus("Apri prima un documento.", "err"); closePops(); runOcr(d, pagesMissing(d).length ? "missing" : "all", state.page); });
   $("dlorig").addEventListener("click", () => { const d = curDoc(); if (d) downloadOriginal(d); });
   $("dlann").addEventListener("click", () => { const d = curDoc(); if (d) downloadAnnotated(d); });
-  $("mode-snip").addEventListener("click", () => setMode("snip"));
-  $("mode-sum").addEventListener("click", () => setMode("sum"));
-  $("mode-val").addEventListener("click", () => setMode("val"));
-  $("mode-exc").addEventListener("click", () => setMode("exc"));
   $("snipdel").addEventListener("click", () => deleteOnSelection());
   ["lfilter", "ltype", "ldoc"].forEach(i => $(i).addEventListener("input", renderList));
-  $("prev").addEventListener("click", () => gotoPage(state.page - 1));
-  $("next").addEventListener("click", () => gotoPage(state.page + 1));
   $("zoomin").addEventListener("click", () => zoom(1.2));
   $("zoomout").addEventListener("click", () => zoom(1 / 1.2));
   $("findsnip").addEventListener("click", findSnipFromCell);
@@ -262,6 +256,7 @@ function updateDocBtn() {
 }
 
 function updatePageUI() {
+  $("pagebadge").hidden = !state.docId;
   $("pageinput").value = state.docId ? state.page : 1;
   $("pagetotal").textContent = state.docId ? state.numPages : "–";
 }
@@ -274,9 +269,7 @@ const MODE_HELP = {
 };
 function setMode(m) {
   state.mode = m;
-  ["snip", "sum", "val", "exc"].forEach(k => $("mode-" + k).classList.toggle("active", k === m));
   $("modestrip").className = "modestrip " + m;
-  $("modehelp").textContent = MODE_HELP[m];
   $("sumpanel").hidden = m !== "sum";
   setStatus(MODE_HELP[m]);
 }
@@ -995,10 +988,13 @@ async function renderPage() {
   if (state.pendingScroll) { state.pendingScroll = false; scrollToMark(); }
 }
 
-async function gotoPage(n) {
-  if (!state.docId || n < 1 || n > state.numPages) return;
+async function gotoPage(n, where) {
+  if (!state.docId || n < 1 || n > state.numPages) { updatePageUI(); return; }
   state.page = n;
   await renderPage();
+  const v = $("viewer");
+  if (where === "top") v.scrollTop = 0;
+  else if (where === "bottom") v.scrollTop = v.scrollHeight;
 }
 
 const fitWidth = () => Math.max(120, $("viewer").clientWidth - 16);
@@ -1020,8 +1016,19 @@ function zoom(f) {
 
 // zoom con CTRL+rotellina (o CTRL +/−) solo sul documento, non sul pannello
 function setupZoomInput() {
+  let lastFlip = 0;
   window.addEventListener("wheel", e => {
-    if (!e.ctrlKey) return;
+    if (!e.ctrlKey) {
+      const v = $("viewer");
+      if (!state.docId || !v.contains(e.target) || Math.abs(e.deltaY) < 4) return;
+      const now = Date.now();
+      if (now - lastFlip < 600) return;
+      const atBottom = v.scrollTop + v.clientHeight >= v.scrollHeight - 3;
+      const atTop = v.scrollTop <= 0;
+      if (e.deltaY > 0 && atBottom && state.page < state.numPages) { lastFlip = now; gotoPage(state.page + 1, "top"); }
+      else if (e.deltaY < 0 && atTop && state.page > 1) { lastFlip = now; gotoPage(state.page - 1, "bottom"); }
+      return;
+    }
     e.preventDefault();
     if ($("viewer").contains(e.target)) zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1);
   }, { passive: false });

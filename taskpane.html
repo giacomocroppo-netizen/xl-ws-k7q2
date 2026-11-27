@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=6" />
+  <link rel="stylesheet" href="taskpane.css?v=7" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
@@ -28,11 +28,9 @@
     <div class="toolbar">
       <button id="foldersbtn" class="tbtn" title="Filtra i documenti per cartella">Folders ▾</button>
       <button id="docbtn" class="tbtn grow" title="Scegli il documento">(nessun documento) ▾</button>
-      <button id="next" class="tbtn sq" title="Pagina successiva">↓</button>
-      <button id="prev" class="tbtn sq" title="Pagina precedente">↑</button>
-      <span class="pg"><input id="pageinput" type="number" min="1" value="1" /> / <span id="pagetotal">–</span></span>
+      <input id="q" type="search" placeholder="Search…" title="Cerca una parola o un numero in tutti i documenti (Invio)" />
+      <span class="navbox"><button id="snipprev" class="tbtn sq" title="Snip precedente della cella" hidden>◀</button><span id="snipnav" class="muted" hidden></span><button id="snipnext" class="tbtn sq" title="Snip successivo della cella" hidden>▶</button></span>
       <button id="morebtn" class="tbtn sq" title="Altre opzioni">⋯</button>
-      <input id="q" type="search" placeholder="Search…" title="Cerca una parola o un numero in tutti i documenti" />
     </div>
 
     <div id="pop-folders" class="pop" hidden>
@@ -56,6 +54,7 @@
             <option value="en">Inglese (1,234.56)</option>
           </select>
         </label>
+        <button id="findsnip" title="Mostra nel documento lo snip della cella selezionata">🎯 Vai allo snip della cella selezionata</button>
         <button id="ocrcur">🔎 OCR di questo documento</button>
         <button id="dlorig">⬇ Scarica originale</button>
         <button id="dlann">⬇ Scarica con spunte</button>
@@ -68,17 +67,7 @@
       <ul id="resultslist"></ul>
     </div>
 
-    <div id="modestrip" class="modestrip snip">
-      <div class="chips">
-        <button id="mode-snip" class="chip snip active" title="Snip">SNIP</button>
-        <button id="mode-sum" class="chip sum" title="Sum Snip">SUM</button>
-        <button id="mode-val" class="chip val" title="Validation Snip">✓</button>
-        <button id="mode-exc" class="chip exc" title="Exception Snip">✗</button>
-      </div>
-      <span id="modehelp" class="modehelp"></span>
-      <span class="navbox"><button id="snipprev" title="Snip precedente della cella" hidden>◀</button><span id="snipnav" class="muted" hidden></span><button id="snipnext" title="Snip successivo della cella" hidden>▶</button>
-      <button id="findsnip" title="Mostra nel documento lo snip della cella selezionata">🎯</button></span>
-    </div>
+    <div id="modestrip" class="modestrip snip" title="Modalità attiva: cambia dalla scheda SNIPPER di Excel"></div>
 
     <div id="sumpanel" class="panel" hidden>
       <div class="row"><strong>SUM SNIP</strong> <span id="sumtotal" class="total">Totale: 0</span></div>
@@ -89,6 +78,7 @@
       </div>
     </div>
 
+    <div id="viewwrap" class="viewwrap">
     <div id="viewer">
       <div id="stage" style="display:none">
         <canvas id="canvas"></canvas>
@@ -97,6 +87,8 @@
       <div id="empty" class="empty">
         <div class="bigdrop">📥<br>Trascina qui un documento (o una cartella)<br><span class="muted">oppure usa «Import Documents» nella barra di Excel</span></div>
       </div>
+    </div>
+    <div id="pagebadge" class="pagebadge" hidden><input id="pageinput" type="number" min="1" value="1" /> / <span id="pagetotal">–</span></div>
     </div>
   </section>
 
@@ -189,10 +181,10 @@
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js?v=6"></script>
-  <script src="folder-lib.js?v=6"></script>
-  <script src="text-lib.js?v=6"></script>
-  <script src="export-lib.js?v=6"></script>
-  <script src="taskpane.js?v=6"></script>
+  <script src="snip-lib.js?v=7"></script>
+  <script src="folder-lib.js?v=7"></script>
+  <script src="text-lib.js?v=7"></script>
+  <script src="export-lib.js?v=7"></script>
+  <script src="taskpane.js?v=7"></script>
 </body>
 </html>
