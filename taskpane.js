@@ -140,12 +140,9 @@ function initUI() {
   $("ocrcur").addEventListener("click", () => { const d = curDoc(); if (!d) return setStatus("Apri prima un documento.", "err"); closePops(); runOcr(d, pagesMissing(d).length ? "missing" : "all", state.page); });
   $("dlorig").addEventListener("click", () => { const d = curDoc(); if (d) downloadOriginal(d); });
   $("dlann").addEventListener("click", () => { const d = curDoc(); if (d) downloadAnnotated(d); });
-  $("openset").addEventListener("click", () => showTab("set"));
-  $("snipdel").addEventListener("click", () => deleteOnSelection());
   ["lfilter", "ltype"].forEach(i => $(i).addEventListener("input", renderList));
   $("zoomin").addEventListener("click", () => zoom(1.2));
   $("zoomout").addEventListener("click", () => zoom(1 / 1.2));
-  $("findsnip").addEventListener("click", findSnipFromCell);
   $("sumwrite").addEventListener("click", writeSum);
   $("sumclear").addEventListener("click", () => { state.sumItems = []; renderSum(); drawMarks(); });
   $("docfilter").addEventListener("input", renderOrg);
@@ -852,27 +849,58 @@ function docCard(d, showPath) {
   const meta = h("div", { class: "meta" }, `${d.pages} pag. · ${fmtSize(d.size)} · ${n} snip `);
   if (miss) meta.append(h("span", { class: "badge warn", text: `${miss} pag. senza testo` }), " ");
   if (ocrN) meta.append(h("span", { class: "badge", text: `OCR ${ocrN} pag.` }));
-  card.append(h("div", { class: "top" }, cb, h("div", {}, h("div", { class: "docname", text: (d.type === "pdf" ? "📄 " : "🖼️ ") + d.name }), meta,
-    showPath && d.folder ? h("div", { class: "meta", text: "📁 " + d.folder }) : null)));
+  const dots = h("button", { class: "dots", title: "Azioni sul documento", text: "⋯" });
+  dots.addEventListener("click", ev => { ev.stopPropagation(); openDocMenu(d, dots); });
+  card.append(h("div", { class: "top" }, cb, h("div", { class: "dbody" }, h("div", { class: "docname", text: (d.type === "pdf" ? "📄 " : "🖼️ ") + d.name }), meta,
+    showPath && d.folder ? h("div", { class: "meta", text: "📁 " + d.folder }) : null), dots));
 
-  const move = h("select", { title: "Sposta in…" });
+  return card;
+}
+
+let docMenuEl = null;
+function closeDocMenu() { if (docMenuEl) { docMenuEl.remove(); docMenuEl = null; } }
+document.addEventListener("click", e => { if (docMenuEl && !e.target.closest(".docmenu")) closeDocMenu(); });
+
+function openDocMenu(d, anchor) {
+  closeDocMenu();
+  const n = snipCount(d.id);
+  const miss = pagesMissing(d).length;
+  const m = h("div", { class: "docmenu" });
+  const item = (txt, fn) => {
+    const b = h("button", { text: txt });
+    b.addEventListener("click", ev => { ev.stopPropagation(); closeDocMenu(); fn(); });
+    m.append(b);
+    return b;
+  };
+  item("📂 Apri", () => { showTab("snip"); openDoc(d.id); });
+  const row = h("div", { class: "dmrow" }, h("span", { text: "Sposta in:" }));
+  const move = h("select", {});
   FolderLib.options(state.index).forEach(o => move.appendChild(new Option(o.label, o.path)));
   move.value = d.folder;
-  move.addEventListener("change", () => { FolderLib.moveDocs(state.index, [d.id], move.value); saveIndex(); renderOrg(); renderDocSelect(); });
-  card.append(h("div", { class: "moveto" }, "Sposta in:", move));
-
-  const act = h("div", { class: "actions" });
-  const mk = (txt, fn, cls) => { const b = h("button", { text: txt, class: cls || null }); b.addEventListener("click", () => fn(b)); act.append(b); return b; };
-  mk("Apri", () => { showTab("snip"); openDoc(d.id); });
-  mk("⬇ Originale", () => downloadOriginal(d));
-  mk(`⬇ Con spunte${n ? " (" + n + ")" : ""}`, () => downloadAnnotated(d));
-  mk("🗜 Comprimi", () => compressDocs([d], $("cmplevel").value));
-  mk("🔎 OCR", () => runOcr(d, miss ? "missing" : "all", 1));
-  const del = h("button", { text: "🗑 Elimina", class: "danger" });
-  armConfirm(del, "🗑 Elimina", () => removeDoc(d));
-  act.append(del);
-  card.append(act);
-  return card;
+  move.addEventListener("click", ev => ev.stopPropagation());
+  move.addEventListener("change", () => { FolderLib.moveDocs(state.index, [d.id], move.value); closeDocMenu(); saveIndex(); renderOrg(); renderDocSelect(); });
+  row.append(move);
+  m.append(row);
+  item("⬇ Scarica originale", () => downloadOriginal(d));
+  item(`⬇ Scarica con spunte${n ? " (" + n + ")" : ""}`, () => downloadAnnotated(d));
+  item("🗜 Comprimi", () => compressDocs([d], $("cmplevel").value));
+  item("🔎 OCR di questo documento", () => runOcr(d, miss ? "missing" : "all", 1));
+  const del = h("button", { text: "🗑 Elimina documento", class: "danger" });
+  let armed = false;
+  del.addEventListener("click", ev => {
+    ev.stopPropagation();
+    if (!armed) { armed = true; del.textContent = "Sicuro? Clicca di nuovo"; return; }
+    closeDocMenu();
+    removeDoc(d);
+  });
+  m.append(del);
+  document.body.append(m);
+  docMenuEl = m;
+  const r = anchor.getBoundingClientRect(), mh = m.offsetHeight, mw = m.offsetWidth;
+  let top = r.bottom + 4;
+  if (top + mh > window.innerHeight - 4) top = Math.max(4, r.top - mh - 4);
+  m.style.top = top + "px";
+  m.style.left = Math.max(4, Math.min(window.innerWidth - mw - 4, r.right - mw)) + "px";
 }
 
 async function removeDoc(d, silent) {

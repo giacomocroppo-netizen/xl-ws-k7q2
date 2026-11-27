@@ -193,3 +193,15 @@ label.tbtn { cursor: pointer; display: inline-block; }
 .llist li.ldoc .lname { word-break: break-all; }
 .llist li.lsnip { padding-left: 18px; }
 #orgsummary { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+
+.doc .top { align-items: center; }
+.doc .dbody { flex: 1; min-width: 0; }
+.doc .dots { flex: none; border: 1px solid #d0d0d0; background: #fff; border-radius: 6px; padding: 2px 9px; font-size: 16px; line-height: 1.2; cursor: pointer; }
+.doc .dots:hover { background: #eef2f6; }
+.docmenu { position: fixed; z-index: 60; background: #fff; border: 1px solid #d0d0d0; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.22); padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 220px; max-width: calc(100vw - 8px); }
+.docmenu button { text-align: left; background: #f2f2f2; border: 1px solid #d0d0d0; border-radius: 6px; padding: 7px 10px; font-size: 13px; cursor: pointer; }
+.docmenu button:hover { background: #e6edf5; }
+.docmenu button.danger { color: #a4002a; border-color: #e0b5bf; background: #fdf1f3; }
+.docmenu .dmrow { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 4px; }
+.docmenu .dmrow select { flex: 1; min-width: 0; font-size: 12px; }
+#orgsummary { display: block; width: auto; }
