@@ -18,7 +18,7 @@ const state = {
   docId: null,
   pdf: null, image: null,
   page: 1, numPages: 1,
-  scale: 1.6, zoom: 1, dpr: 1, nav: null, lastCell: null, lastNext: null,
+  scale: 1.6, zoom: 1, dpr: 1, nav: null, lastCell: null,
   viewW: 0, viewH: 0,
   pageItems: [],            // testo della pagina aperta, in pixel dello schermo
   sumItems: [],
@@ -284,10 +284,10 @@ function updatePageUI() {
 }
 
 const MODE_HELP = {
-  snip: "SNIP: trascina un rettangolo sul valore → cella selezionata, poi a destra. CTRL = aggiungi alla cella precedente.",
-  sum: "SUM SNIP: trascina sul numero (o su una colonna di numeri) → somma nella cella, poi a destra. CTRL = aggiungi alla somma della cella.",
-  val: "VALIDATION: trascina sull'area verificata → cella verde con ✓.",
-  exc: "EXCEPTION: trascina sull'area con anomalia → cella rossa con ✗."
+  snip: "SNIP: trascina un rettangolo sul valore → cella selezionata. Lo snip successivo va nella cella a destra. CTRL = aggiungi alla stessa cella.",
+  sum: "SUM SNIP: trascina sul numero (o su una colonna di numeri) → somma nella cella. Lo snip successivo va a destra. CTRL = aggiungi alla somma della cella.",
+  val: "VALIDATION: trascina sull'area verificata → cella verde con ✓. Con CTRL altri riquadri sulla stessa cella (un solo ✓).",
+  exc: "EXCEPTION: trascina sull'area con anomalia → cella rossa con ✗. Con CTRL altri riquadri sulla stessa cella (un solo ✗)."
 };
 function setMode(m) {
   state.mode = m;
@@ -1309,14 +1309,23 @@ async function onSnip(f, withCtrl) {
     if (state.mode === "val" || state.mode === "exc") {
       const isV = state.mode === "val";
       const sym = isV ? "✓" : "✗";
-      const addr = await writeToCell(sym, isV ? COL.val : COL.exc, false, isV ? "#006100" : "#9C0006");
-      const id = nextSnipId();
-      await addLog([{ id, cell: addr, type: isV ? "VALIDATION" : "EXCEPTION", page: state.page, ...f, text: sym, value: sym }]);
+      const type = isV ? "VALIDATION" : "EXCEPTION";
+      let addr, id, extra = false;
+      if (withCtrl) {
+        addr = await currentCellAddress();
+        const ex = state.log.find(r => r.cell === addr && r.type === type);
+        if (ex) { id = ex.id; extra = true; }
+        else { addr = await writeToCell(sym, isV ? COL.val : COL.exc, false, isV ? "#006100" : "#9C0006"); id = nextSnipId(); }
+      } else {
+        await advanceIfNeeded();
+        addr = await writeToCell(sym, isV ? COL.val : COL.exc, false, isV ? "#006100" : "#9C0006");
+        id = nextSnipId();
+      }
+      await addLog([{ id, cell: addr, type, page: state.page, ...f, text: sym, value: sym }]);
       state.focusId = null; state.searchMarks = [];
       drawMarks();
       state.lastCell = addr;
-      state.lastNext = await moveRight();
-      setStatus(`#${id}: ${isV ? "validazione" : "eccezione"} in ${addr}. Prossimo in ${state.lastNext}.`, "ok");
+      setStatus(`#${id}: ${isV ? "validazione" : "eccezione"} ${extra ? "aggiunta (altro riquadro) alla cella" : "in"} ${addr}.`, "ok");
       return;
     }
     let { text, source, layer } = await readArea(f);
@@ -1350,7 +1359,7 @@ async function onSnip(f, withCtrl) {
       if (withCtrl) {
         // CTRL: il numero si aggiunge alla somma della cella (quella appena scritta, oppure quella su cui sei posizionato)
         const sel = await currentCellAddress();
-        const target = state.lastCell && state.lastNext === sel ? state.lastCell : sel;
+        const target = sel;
         const existing = state.log.filter(r => r.cell === target && r.type === "SUM SNIP");
         const id = existing.length ? existing[0].id : nextSnipId();
         const all = existing.flatMap(sumRowValues).concat(values);
@@ -1364,17 +1373,18 @@ async function onSnip(f, withCtrl) {
         await addLog([{ id, cell: target, ...row }]);
         state.focusId = null; state.searchMarks = [];
         drawMarks();
+        state.lastCell = target;
         setStatus(`#${id}: aggiunto ${msg} alla somma di ${target}: ${formula} (${source}).`, "ok");
       } else {
         const formula = SnipLib.sumFormula(values);
+        await advanceIfNeeded();
         const addr = await writeToCell(formula, COL.sum, true);
         const id = nextSnipId();
         await addLog([{ id, cell: addr, ...row }]);
         state.focusId = null; state.searchMarks = [];
         drawMarks();
         state.lastCell = addr;
-        state.lastNext = await moveRight();
-        setStatus(`#${id}: somma in ${addr}: ${formula} (${source}). Per aggiungere altri numeri tieni premuto CTRL mentre trascini. Prossimo snip in ${state.lastNext}.`, "ok");
+        setStatus(`#${id}: somma in ${addr}: ${formula} (${source}). Per aggiungere altri numeri tieni premuto CTRL mentre trascini.`, "ok");
       }
       return;
     }
@@ -1387,22 +1397,20 @@ async function onSnip(f, withCtrl) {
     let addr, appended = false;
     if (withCtrl) {
       const sel = await currentCellAddress();
-      const target = state.lastCell && state.lastNext === sel ? state.lastCell : sel;
+      const target = sel;
       const r = await appendToCell(target, text, COL.snip);
       addr = target; appended = r;
     } else {
+      await advanceIfNeeded();
       addr = await writeToCell(value, COL.snip);
     }
     const id = nextSnipId();
     await addLog([{ id, cell: addr, type: "SNIP", page: state.page, ...f, text, value }]);
     state.focusId = null; state.searchMarks = [];
     drawMarks();
+    state.lastCell = addr;
     if (withCtrl) setStatus(`#${id}: «${text}» aggiunto alla cella ${addr}${appended ? " (separato da « - »)" : ""} (${source}).`, "ok");
-    else {
-      state.lastCell = addr;
-      state.lastNext = await moveRight();
-      setStatus(`#${id}: scritto ${isNum ? value : "«" + text + "»"} in ${addr} (${source}). Prossimo snip in ${state.lastNext}.`, "ok");
-    }
+    else setStatus(`#${id}: scritto ${isNum ? value : "«" + text + "»"} in ${addr} (${source}).`, "ok");
   } catch (e) {
     console.error(e);
     setStatus("Errore: " + (e.message || e), "err");
@@ -1440,8 +1448,7 @@ async function writeSum() {
     state.sumItems = [];
     renderSum(); drawMarks();
     state.lastCell = addr;
-    state.lastNext = await moveRight();
-    setStatus(`#${id}: somma scritta in ${addr}: ${formula}. Prossimo in ${state.lastNext}.`, "ok");
+    setStatus(`#${id}: somma scritta in ${addr}: ${formula}.`, "ok");
   } catch (e) {
     console.error(e);
     setStatus("Errore: " + (e.message || e), "err");
@@ -1643,6 +1650,13 @@ async function writeToCell(value, color, isFormula, fontColor) {
     await ctx.sync();
     return cell.address;
   });
+}
+
+// prima di un nuovo snip SENZA CTRL: se sei ancora sulla cella appena scritta, passa alla cella a destra
+async function advanceIfNeeded() {
+  const sel = await currentCellAddress();
+  if (state.lastCell && sel === state.lastCell) return moveRight();
+  return sel;
 }
 
 async function moveRight() {
@@ -1936,6 +1950,7 @@ function sumRowValues(row) {
 // X su un riquadro: per un Sum Snip toglie SOLO quel riquadro (e i suoi numeri) dalla somma;
 // se era l'ultimo, o se non è una somma, elimina tutto lo snip come Delete Snip.
 async function deleteSnipPart(row) {
+  state.lastCell = null;
   const sibs = state.log.filter(r => r.id === row.id);
   if (row.type !== "SUM SNIP" || sibs.length <= 1) { await deleteSnipIds([row.id]); return; }
   if (state.busy) { setStatus("Attendi la fine dell'operazione in corso.", "err"); return; }
@@ -1961,6 +1976,7 @@ async function deleteSnipPart(row) {
 }
 
 async function deleteSnipIds(ids) {
+  state.lastCell = null;
   if (state.busy) { setStatus("Attendi la fine dell'operazione in corso.", "err"); return; }
   state.busy = true;
   try {
