@@ -8,21 +8,40 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css" />
+  <link rel="stylesheet" href="taskpane.css?v=3" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
+  <input id="importdir" type="file" webkitdirectory hidden />
+  <div id="dropover" class="dropover" hidden><div>📥 Rilascia qui documenti (PDF, PNG, JPG) o cartelle</div></div>
 
   <div class="tabs">
     <button id="tab-snip" class="tab active">✂️ Spunta</button>
     <button id="tab-org" class="tab">📁 Organizza</button>
   </div>
 
+  <div id="ocrbanner" class="banner" hidden>
+    <div id="ocrtext"></div>
+    <div class="bbtns">
+      <button id="ocrrun" class="btn primary">Esegui OCR</button>
+      <button id="ocrlater" class="btn">Più tardi</button>
+    </div>
+  </div>
+
   <!-- ===== SCHERMATA SPUNTA ===== -->
   <section id="view-snip">
     <div class="bar">
       <select id="docselect" title="Documento aperto"></select>
-      <label class="btn primary" for="import" title="Aggiungi documenti al file Excel">➕ Importa</label>
+      <label class="btn primary" for="import" title="Aggiungi documenti (puoi anche trascinarli nel pannello)">➕ Importa</label>
+    </div>
+
+    <div class="bar">
+      <input id="q" type="search" placeholder="🔍 Cerca una parola in tutti i documenti…" />
+      <button id="qgo">Cerca</button>
+    </div>
+    <div id="results" class="panel" hidden>
+      <div class="row"><strong id="resultstitle">Risultati</strong><button id="resultsclose" title="Chiudi">✕</button></div>
+      <ul id="resultslist"></ul>
     </div>
 
     <div class="bar">
@@ -35,7 +54,7 @@
       <button id="next" title="Pagina successiva">▶</button>
       <button id="zoomout" title="Riduci">−</button>
       <button id="zoomin" title="Ingrandisci">+</button>
-      <button id="findsnip" title="Mostra nel documento lo snip della cella selezionata">🔍 Trova</button>
+      <button id="findsnip" title="Mostra nel documento lo snip della cella selezionata">🎯 Vai allo snip</button>
     </div>
 
     <div class="bar small">
@@ -47,6 +66,19 @@
       </label>
       <label><input type="checkbox" id="movedown" /> vai alla cella sotto</label>
       <label><input type="checkbox" id="asnumber" checked /> converti in numero</label>
+      <label title="Quando clicchi una cella con uno snip, apre il pannello e lo mostra"><input type="checkbox" id="autoopen" checked /> apri lo snip cliccando la cella</label>
+    </div>
+
+    <div class="bar small">
+      <label>OCR:
+        <select id="ocrscope">
+          <option value="current">pagina corrente</option>
+          <option value="missing">pagine senza testo</option>
+          <option value="all">tutto il documento</option>
+        </select>
+      </label>
+      <button id="ocrgo" title="Legge il testo delle pagine con l'OCR (anche per ricerca e snip)">🔎 Avvia OCR</button>
+      <span id="ocrinfo" class="muted"></span>
     </div>
 
     <div id="sumpanel" class="panel" hidden>
@@ -63,25 +95,44 @@
         <canvas id="canvas"></canvas>
         <div id="overlay"></div>
       </div>
-      <div id="empty" class="empty">Nessun documento aperto.<br>Premi «➕ Importa» oppure vai su «📁 Organizza».</div>
+      <div id="empty" class="empty">
+        <div class="bigdrop">📥<br>Trascina qui un documento (o una cartella)<br><span class="muted">oppure premi «➕ Importa»</span></div>
+      </div>
     </div>
   </section>
 
   <!-- ===== SCHERMATA ORGANIZZA ===== -->
   <section id="view-org" hidden>
     <div class="bar">
-      <label class="btn primary" for="import">➕ Importa documenti</label>
-      <input id="docfilter" type="search" placeholder="Filtra per nome…" />
+      <input id="docfilter" type="search" placeholder="Filtra per nome documento…" />
+    </div>
+    <div class="bar small">
+      <span>Importa in: <strong id="target">📂 cartella principale</strong></span>
+    </div>
+    <div id="selbar" class="bar small selbar" hidden>
+      <span id="selcount"></span>
+      <select id="selmove" title="Sposta i documenti selezionati"></select>
+      <button id="selmovego">Sposta</button>
+      <button id="seldelete" class="danger">🗑 Elimina</button>
+      <button id="selclear">Deseleziona</button>
     </div>
     <div id="orgsummary" class="muted pad"></div>
-    <datalist id="folders"></datalist>
-    <div id="doclist"></div>
+    <div id="tree"></div>
+    <div id="dropzone" class="dropzone">
+      <div>📥 Trascina qui i documenti o le cartelle</div>
+      <div class="dzbtns">
+        <label class="btn primary" for="import">Importa documenti</label>
+        <label class="btn" for="importdir">Importa cartella</label>
+      </div>
+    </div>
   </section>
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js"></script>
-  <script src="export-lib.js"></script>
-  <script src="taskpane.js"></script>
+  <script src="snip-lib.js?v=3"></script>
+  <script src="folder-lib.js?v=3"></script>
+  <script src="text-lib.js?v=3"></script>
+  <script src="export-lib.js?v=3"></script>
+  <script src="taskpane.js?v=3"></script>
 </body>
 </html>

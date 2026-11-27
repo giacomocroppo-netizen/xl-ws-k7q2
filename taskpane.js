@@ -1,25 +1,33 @@
-/* global Office, Excel, pdfjsLib, Tesseract, PDFLib, SnipLib, ExportLib */
+/* global Office, Excel, pdfjsLib, Tesseract, PDFLib, SnipLib, FolderLib, TextLib, ExportLib */
 "use strict";
 
 const PDFJS_VERSION = "3.11.174";
 const LOG_SHEET = "_SNIP_LOG";
 const NS_INDEX = "urn:snipper:index:v1";   // elenco dei documenti incorporati
-const NS_DOC = "urn:snipper:doc:v1";       // contenuto dei documenti (a blocchi)
+const NS_DOC = "urn:snipper:doc:v1";       // contenuto dei documenti e dell'OCR (a blocchi)
 const CHUNK = 2000000;                     // caratteri per blocco
 const WARN_MB = 15;
+const OCR_SCALE = 2;                       // risoluzione dell'OCR (2 = circa 150 dpi)
+const EXT_OK = /\.(pdf|png|jpe?g)$/i;
 
 const state = {
   mode: "snip",
-  index: { docs: [] },     // documenti incorporati
-  log: [],                 // snip già fatti (copia del foglio nascosto _SNIP_LOG)
+  index: { docs: [], folders: [] },
+  log: [],
   docId: null,
   pdf: null, image: null,
   page: 1, numPages: 1,
   scale: 1.6, dpr: 1,
   viewW: 0, viewH: 0,
-  textItems: [], hasTextLayer: false,
-  sumItems: [],            // snip in attesa di somma
-  focusId: null,           // numero snip evidenziato
+  pageItems: [],            // testo della pagina aperta, in pixel dello schermo
+  sumItems: [],
+  focusId: null,            // snip evidenziato
+  searchMarks: [],          // risultati di ricerca evidenziati
+  native: {},               // docId -> {pagina: [pezzi di testo normalizzati]}
+  ocr: {},                  // docId -> {pagina: [parole normalizzate]}
+  ocrDismissed: new Set(),
+  ui: { expanded: new Set(), creatingIn: null, renaming: null, selected: new Set(), currentFolder: "" },
+  pendingScroll: false,
   busy: false
 };
 
@@ -27,14 +35,29 @@ const $ = id => document.getElementById(id);
 const canvas = $("canvas");
 const overlay = $("overlay");
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const r4 = n => Math.round(n * 10000) / 10000;
+const docById = id => state.index.docs.find(d => d.id === id);
+const curDoc = () => docById(state.docId);
+const fmtSize = b => b >= 1048576 ? (b / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
 
 function setStatus(msg, kind) {
   const el = $("status");
   el.textContent = msg;
   el.className = "status" + (kind ? " " + kind : "");
 }
-const fmtSize = b => b >= 1048576 ? (b / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
-const curDoc = () => state.index.docs.find(d => d.id === state.docId);
+
+function h(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  Object.entries(props || {}).forEach(([k, v]) => {
+    if (v == null || v === false) return;
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : v);
+  });
+  kids.flat().forEach(c => { if (c != null && c !== false) e.append(c); });
+  return e;
+}
 
 // =====================================================================
 //  Avvio
@@ -48,11 +71,13 @@ Office.onReady(async info => {
     refreshAll();
     setStatus(state.index.docs.length
       ? `${state.index.docs.length} documento/i incorporato/i in questo file.`
-      : "Nessun documento in questo file. Premi «➕ Importa».");
+      : "Nessun documento in questo file. Premi «➕ Importa» o trascina qui i file.");
   } catch (e) {
     console.error(e);
     setStatus("Errore all'avvio: " + (e.message || e), "err");
   }
+  registerSelectionHandler();
+  try { if (Office.addin && Office.addin.setStartupBehavior) await Office.addin.setStartupBehavior(Office.StartupBehavior.load); } catch (e) { /* non supportato */ }
 });
 
 async function initPdfWorker() {
@@ -67,7 +92,16 @@ async function initPdfWorker() {
 
 function initUI() {
   initPdfWorker();
-  $("import").addEventListener("change", onImport);
+  $("import").addEventListener("change", ev => { const f = Array.from(ev.target.files || []).map(file => ({ file, folder: state.ui.currentFolder })); ev.target.value = ""; importItems(f); });
+  $("importdir").addEventListener("change", ev => {
+    const f = Array.from(ev.target.files || []).map(file => {
+      const rel = file.webkitRelativePath || file.name;
+      const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+      return { file, folder: FolderLib.cleanPath(FolderLib.join(state.ui.currentFolder, dir)) };
+    });
+    ev.target.value = "";
+    importItems(f);
+  });
   $("tab-snip").addEventListener("click", () => showTab("snip"));
   $("tab-org").addEventListener("click", () => { showTab("org"); renderOrg(); });
   $("docselect").addEventListener("change", e => e.target.value && openDoc(e.target.value));
@@ -77,11 +111,37 @@ function initUI() {
   $("next").addEventListener("click", () => gotoPage(state.page + 1));
   $("zoomin").addEventListener("click", () => zoom(1.2));
   $("zoomout").addEventListener("click", () => zoom(1 / 1.2));
-  $("findsnip").addEventListener("click", findSnip);
+  $("findsnip").addEventListener("click", findSnipFromCell);
   $("sumwrite").addEventListener("click", writeSum);
   $("sumclear").addEventListener("click", () => { state.sumItems = []; renderSum(); drawMarks(); });
   $("docfilter").addEventListener("input", renderOrg);
+  $("q").addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+  $("qgo").addEventListener("click", runSearch);
+  $("resultsclose").addEventListener("click", closeResults);
+  $("ocrrun").addEventListener("click", runBannerOcr);
+  $("ocrlater").addEventListener("click", () => { docsNeedingOcr().forEach(d => state.ocrDismissed.add(d.id)); updateOcrBanner(); });
+  $("ocrgo").addEventListener("click", () => { const d = curDoc(); if (d) runOcr(d, $("ocrscope").value, state.page); else setStatus("Apri prima un documento.", "err"); });
+  $("selmovego").addEventListener("click", () => { FolderLib.moveDocs(state.index, [...state.ui.selected], $("selmove").value); state.ui.selected.clear(); saveIndex(); renderOrg(); });
+  $("selclear").addEventListener("click", () => { state.ui.selected.clear(); renderOrg(); });
+  armConfirm($("seldelete"), "🗑 Elimina", async () => { const ids = [...state.ui.selected]; for (const id of ids) { const d = docById(id); if (d) await removeDoc(d, true); } state.ui.selected.clear(); refreshAll(); });
+  try { $("autoopen").checked = localStorage.getItem("snipper.autoopen") !== "0"; } catch (e) { /* ok */ }
+  $("autoopen").addEventListener("change", () => { try { localStorage.setItem("snipper.autoopen", $("autoopen").checked ? "1" : "0"); } catch (e) { /* ok */ } });
   setupSelection();
+  setupDragDrop();
+}
+
+// Pulsante "a doppio clic": il primo clic chiede conferma, il secondo esegue
+function armConfirm(btn, label, fn) {
+  btn.addEventListener("click", () => {
+    if (!btn.classList.contains("armed")) {
+      btn.classList.add("armed");
+      btn.textContent = "Sicuro? Clicca di nuovo";
+      setTimeout(() => { btn.classList.remove("armed"); btn.textContent = label; }, 4000);
+    } else {
+      btn.classList.remove("armed"); btn.textContent = label;
+      fn(btn);
+    }
+  });
 }
 
 function showTab(t) {
@@ -104,6 +164,8 @@ function setMode(m) {
 function refreshAll() {
   renderDocSelect();
   renderOrg();
+  updateOcrBanner();
+  updateOcrInfo();
 }
 
 // =====================================================================
@@ -114,15 +176,18 @@ async function readIndex() {
     const col = ctx.workbook.customXmlParts.getByNamespace(NS_INDEX);
     col.load("items/id");
     await ctx.sync();
-    if (!col.items.length) return { docs: [] };
-    const xml = col.items[0].getXml();
-    await ctx.sync();
-    try {
-      const d = new DOMParser().parseFromString(xml.value, "application/xml");
-      const idx = JSON.parse(d.documentElement.textContent);
-      idx.docs = idx.docs || [];
-      return idx;
-    } catch (e) { return { docs: [] }; }
+    let idx = { docs: [], folders: [] };
+    if (col.items.length) {
+      const xml = col.items[0].getXml();
+      await ctx.sync();
+      try {
+        const d = new DOMParser().parseFromString(xml.value, "application/xml");
+        idx = JSON.parse(d.documentElement.textContent);
+      } catch (e) { /* indice illeggibile: ripartiamo vuoti */ }
+    }
+    idx.docs = idx.docs || [];
+    idx.folders = idx.folders || [];
+    return FolderLib.normalize(idx);
   });
 }
 
@@ -134,12 +199,18 @@ async function writeIndex() {
     await ctx.sync();
     if (col.items.length) {
       col.items[0].setXml(xml);
-      for (let i = 1; i < col.items.length; i++) col.items[i].delete();   // eventuali doppioni
+      for (let i = 1; i < col.items.length; i++) col.items[i].delete();
     } else {
       ctx.workbook.customXmlParts.add(xml);
     }
     await ctx.sync();
   });
+}
+
+let saveChain = Promise.resolve();
+function saveIndex() {
+  saveChain = saveChain.then(() => writeIndex()).catch(e => { console.error(e); setStatus("Errore nel salvataggio: " + (e.message || e), "err"); });
+  return saveChain;
 }
 
 async function storeBytes(bytes) {
@@ -161,10 +232,10 @@ async function storeBytes(bytes) {
   return ids;
 }
 
-async function loadBytes(doc) {
+async function loadPartsBytes(partIds) {
   let b64 = "";
   await Excel.run(async ctx => {
-    for (const id of doc.parts) {
+    for (const id of partIds) {
       const x = ctx.workbook.customXmlParts.getItem(id).getXml();
       await ctx.sync();
       const m = /<c[^>]*>([\s\S]*)<\/c>/.exec(x.value);
@@ -173,80 +244,320 @@ async function loadBytes(doc) {
   });
   return SnipLib.b64ToBytes(b64);
 }
+const loadBytes = doc => loadPartsBytes(doc.parts);
 
 async function deleteParts(ids) {
+  if (!ids || !ids.length) return;
   return Excel.run(async ctx => {
     ids.forEach(id => ctx.workbook.customXmlParts.getItem(id).delete());
     await ctx.sync();
   });
 }
 
+async function gzip(bytes) {
+  if (typeof CompressionStream === "undefined") return { bytes, gz: false };
+  const s = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+  return { bytes: new Uint8Array(await new Response(s).arrayBuffer()), gz: true };
+}
+async function gunzip(bytes) {
+  const s = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+
 // =====================================================================
-//  Importazione
+//  Testo delle pagine: nativo (PDF) oppure OCR
 // =====================================================================
-async function onImport(ev) {
-  const files = Array.from(ev.target.files || []);
-  ev.target.value = "";
-  if (!files.length || state.busy) return;
+// pezzi di testo di una pagina PDF, in frazioni (0..1) della pagina vista
+function itemsFromContent(tc, vp) {
+  const out = [];
+  tc.items.forEach(it => {
+    if (!it.str || !it.str.trim()) return;
+    const t = pdfjsLib.Util.transform(vp.transform, it.transform);
+    const w = it.width * vp.scale;
+    const sx = Math.hypot(t[0], t[1]) || 1, sy = Math.hypot(t[2], t[3]) || 1;
+    const dx = t[0] / sx, dy = t[1] / sx, ux = -t[2] / sy, uy = -t[3] / sy;
+    const hh = sy;
+    const xs = [t[4], t[4] + dx * w, t[4] + ux * hh, t[4] + dx * w + ux * hh];
+    const ys = [t[5], t[5] + dy * w, t[5] + uy * hh, t[5] + dy * w + uy * hh];
+    out.push({
+      s: it.str,
+      u1: Math.min(...xs) / vp.width, v1: Math.min(...ys) / vp.height,
+      u2: Math.max(...xs) / vp.width, v2: Math.max(...ys) / vp.height
+    });
+  });
+  return out;
+}
+
+async function nativeItems(docId, pdf, n) {
+  const c = (state.native[docId] = state.native[docId] || {});
+  if (c[n]) return c[n];
+  const page = await pdf.getPage(n);
+  const vp = page.getViewport({ scale: 1 });
+  c[n] = itemsFromContent(await page.getTextContent(), vp);
+  return c[n];
+}
+
+function effItems(docId, n) {
+  const o = state.ocr[docId];
+  if (o && o[n] && o[n].length) return o[n];
+  const t = state.native[docId];
+  return t && t[n] && t[n].length ? t[n] : null;
+}
+
+async function loadOcr(doc) {
+  if (state.ocr[doc.id]) return state.ocr[doc.id];
+  const res = {};
+  if (doc.ocr && doc.ocr.parts && doc.ocr.parts.length) {
+    let bytes = await loadPartsBytes(doc.ocr.parts);
+    if (doc.ocr.gz) bytes = await gunzip(bytes);
+    const data = JSON.parse(new TextDecoder().decode(bytes));
+    Object.entries(data.pages || {}).forEach(([n, arr]) => {
+      res[n] = arr.map(a => ({ s: a[0], u1: a[1], v1: a[2], u2: a[3], v2: a[4] }));
+    });
+  }
+  state.ocr[doc.id] = res;
+  return res;
+}
+
+async function saveOcr(doc) {
+  const data = { v: 1, pages: {} };
+  Object.entries(state.ocr[doc.id] || {}).forEach(([n, items]) => {
+    data.pages[n] = items.map(i => [i.s, r4(i.u1), r4(i.v1), r4(i.u2), r4(i.v2)]);
+  });
+  const raw = new TextEncoder().encode(JSON.stringify(data));
+  const z = await gzip(raw);
+  const old = doc.ocr && doc.ocr.parts ? doc.ocr.parts : [];
+  const parts = await storeBytes(z.bytes);
+  doc.ocr = { parts, gz: z.gz, pages: Object.keys(data.pages).map(Number).sort((a, b) => a - b), at: new Date().toISOString() };
+  await saveIndex();
+  await deleteParts(old).catch(() => {});
+}
+
+// Pagine senza testo selezionabile (candidate all'OCR)
+async function analyzeDoc(doc, pdf) {
+  const missing = [];
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const items = await nativeItems(doc.id, pdf, n);
+    const chars = items.reduce((a, i) => a + i.s.replace(/\s/g, "").length, 0);
+    if (chars < 5) missing.push(n);
+  }
+  return missing;
+}
+
+const pagesMissing = doc => (doc.noText || []).filter(p => !(doc.ocr && doc.ocr.pages && doc.ocr.pages.includes(p)));
+const docsNeedingOcr = () => state.index.docs.filter(d => pagesMissing(d).length > 0 && !state.ocrDismissed.has(d.id));
+
+function updateOcrBanner() {
+  const list = docsNeedingOcr();
+  const b = $("ocrbanner");
+  if (!list.length) { b.hidden = true; return; }
+  b.hidden = false;
+  if (list.length === 1) {
+    const d = list[0], n = pagesMissing(d).length;
+    $("ocrtext").textContent = `⚠ «${d.name}»: ${n === d.pages ? "nessuna pagina ha testo leggibile" : n + " pagine senza testo leggibile"} (probabile scansione). Senza OCR non posso leggere i valori né cercare nel testo.`;
+  } else {
+    $("ocrtext").textContent = `⚠ ${list.length} documenti sembrano scansioni (pagine senza testo leggibile). Senza OCR non posso leggere i valori né cercare nel testo.`;
+  }
+}
+
+async function runBannerOcr() {
+  const list = docsNeedingOcr();
+  for (const d of list) await runOcr(d, "missing", 1);
+}
+
+function updateOcrInfo() {
+  const d = curDoc();
+  if (!d) { $("ocrinfo").textContent = ""; return; }
+  const done = d.ocr && d.ocr.pages ? d.ocr.pages.length : 0;
+  $("ocrinfo").textContent = done ? `OCR fatto su ${done} pag.` : "";
+}
+
+function pagesForScope(doc, scope, cur) {
+  const all = Array.from({ length: doc.pages }, (_, i) => i + 1);
+  if (scope === "current") return [cur];
+  if (scope === "all") return all;
+  const miss = pagesMissing(doc);
+  return miss.length ? miss : [];
+}
+
+async function blobToImage(bytes, mime) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error("immagine non valida"));
+    img.src = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  });
+}
+
+async function runOcr(doc, scope, curPage) {
+  if (state.busy) { setStatus("Attendi la fine dell'operazione in corso.", "err"); return; }
   state.busy = true;
-  let lastId = null, added = 0;
+  let worker = null, pdf = null;
   try {
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      setStatus(`Importo ${f.name} (${i + 1}/${files.length})… non chiudere Excel.`);
-      if (state.index.docs.some(d => d.name === f.name && d.size === f.size)) {
-        lastId = state.index.docs.find(d => d.name === f.name && d.size === f.size).id;
-        setStatus(`«${f.name}» è già nel file: l'ho riaperto.`);
-        continue;
+    await loadOcr(doc);
+    const pages = pagesForScope(doc, scope, curPage);
+    if (!pages.length) { setStatus("Nessuna pagina senza testo: se vuoi comunque l'OCR scegli «tutto il documento» o «pagina corrente».", "ok"); return; }
+    const bytes = await loadBytes(doc);
+    let img = null;
+    if (doc.type === "pdf") pdf = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
+    else img = await blobToImage(bytes, doc.mime);
+    setStatus("Preparo l'OCR… (la prima volta scarica i dati della lingua)");
+    worker = await Tesseract.createWorker(["ita", "eng"]);
+    for (let i = 0; i < pages.length; i++) {
+      const n = pages[i];
+      setStatus(`OCR di «${doc.name}»: pagina ${n} (${i + 1} di ${pages.length})…`);
+      const cv = document.createElement("canvas");
+      const ctx = cv.getContext("2d");
+      if (pdf) {
+        const page = await pdf.getPage(n);
+        const vp = page.getViewport({ scale: OCR_SCALE });
+        cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      } else {
+        cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(img, 0, 0);
       }
-      const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
-      const isPng = /\.png$/i.test(f.name) || f.type === "image/png";
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      let pages = 1;
-      if (isPdf) {
-        const test = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;   // controlla che sia valido
-        pages = test.numPages;
-        test.destroy();
-      }
-      const parts = await storeBytes(bytes);
-      const doc = {
-        id: uid(), name: f.name, type: isPdf ? "pdf" : "image",
-        mime: isPdf ? "application/pdf" : (isPng ? "image/png" : "image/jpeg"),
-        size: f.size, pages, folder: "", parts, added: new Date().toISOString()
-      };
-      state.index.docs.push(doc);
-      await writeIndex();
-      lastId = doc.id;
-      added++;
+      const { data } = await worker.recognize(cv);
+      const W = cv.width, H = cv.height;
+      state.ocr[doc.id][n] = (data.words || [])
+        .filter(w => w.text && w.text.trim() && w.bbox)
+        .map(w => ({ s: w.text.trim(), u1: w.bbox.x0 / W, v1: w.bbox.y0 / H, u2: w.bbox.x1 / W, v2: w.bbox.y1 / H }));
     }
+    setStatus("Salvo il testo letto nel file Excel…");
+    await saveOcr(doc);
+    state.ocrDismissed.delete(doc.id);
     refreshAll();
-    const big = files.some(f => f.size > WARN_MB * 1048576);
-    if (lastId) {
-      showTab("snip");
-      await openDoc(lastId);
-    }
-    setStatus(`Importati ${added} documento/i. Ricorda di salvare il file Excel.` +
-      (big ? " Attenzione: file grandi appesantiscono molto la cartella di lavoro." : ""), big ? "err" : "ok");
+    if (state.docId === doc.id) await renderPage();
+    setStatus(`OCR completato su ${pages.length} pagina/e di «${doc.name}». Ora puoi spuntare e cercare nel testo.`, "ok");
   } catch (e) {
     console.error(e);
-    setStatus("Importazione non riuscita: " + (e.message || e), "err");
+    setStatus("OCR non riuscito: " + (e.message || e), "err");
   } finally {
+    if (worker) { try { await worker.terminate(); } catch (e) { /* ok */ } }
+    if (pdf) { try { pdf.destroy(); } catch (e) { /* ok */ } }
     state.busy = false;
   }
 }
 
 // =====================================================================
-//  Schermata ORGANIZZA
+//  Importazione (selezione manuale, cartelle, trascinamento)
+// =====================================================================
+async function importItems(items) {
+  if (state.busy) { setStatus("Attendi la fine dell'operazione in corso.", "err"); return; }
+  const ok = items.filter(i => EXT_OK.test(i.file.name));
+  const skipped = items.length - ok.length;
+  if (!ok.length) { setStatus(skipped ? "Formati accettati: PDF, PNG, JPG." : "Nessun file.", "err"); return; }
+  state.busy = true;
+  const added = [];
+  let dup = 0, last = null;
+  try {
+    for (let i = 0; i < ok.length; i++) {
+      const { file: f, folder } = ok[i];
+      setStatus(`Importo ${f.name} (${i + 1}/${ok.length})… non chiudere Excel.`);
+      const same = state.index.docs.find(d => d.name === f.name && d.size === f.size);
+      if (same) { dup++; last = same.id; continue; }
+      const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+      const isPng = /\.png$/i.test(f.name) || f.type === "image/png";
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const doc = {
+        id: uid(), name: f.name, type: isPdf ? "pdf" : "image",
+        mime: isPdf ? "application/pdf" : (isPng ? "image/png" : "image/jpeg"),
+        size: f.size, pages: 1, folder: FolderLib.cleanPath(folder), parts: [], added: new Date().toISOString(),
+        noText: [], ocr: null
+      };
+      if (isPdf) {
+        const test = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;   // controlla che sia valido
+        doc.pages = test.numPages;
+        doc.noText = await analyzeDoc(doc, test);
+        test.destroy();
+      } else {
+        doc.noText = [1];                                                           // un'immagine non ha testo
+      }
+      doc.parts = await storeBytes(bytes);
+      state.index.docs.push(doc);
+      FolderLib.normalize(state.index);
+      await writeIndex();
+      added.push(doc);
+      last = doc.id;
+    }
+    refreshAll();
+    const big = ok.some(i => i.file.size > WARN_MB * 1048576);
+    if (added.length === 1 && state.ui.currentFolder === added[0].folder) { /* resta dov'è */ }
+    if (last && (added.length === 1 || (!added.length && dup === 1))) { showTab("snip"); await openDoc(last); }
+    const scans = added.filter(d => pagesMissing(d).length).length;
+    setStatus(`Importati ${added.length} documento/i` + (dup ? `, ${dup} già presente/i` : "") + (skipped ? `, ${skipped} ignorato/i (formato non valido)` : "") +
+      (scans ? `. ${scans} sembra/no scansione/i: ti propongo l'OCR.` : ".") + " Ricorda di salvare il file Excel." +
+      (big ? " Attenzione: file grandi appesantiscono molto la cartella di lavoro." : ""), big || scans ? "err" : "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("Importazione non riuscita: " + (e.message || e), "err");
+    refreshAll();
+  } finally {
+    state.busy = false;
+  }
+}
+
+// ---- trascinamento di file e cartelle dentro il pannello ----
+function setupDragDrop() {
+  const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+  let depth = 0;
+  window.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; $("dropover").hidden = false; });
+  window.addEventListener("dragover", e => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+  window.addEventListener("dragleave", e => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) $("dropover").hidden = true; });
+  window.addEventListener("drop", async e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0; $("dropover").hidden = true;
+    // gli elementi vanno letti subito: dopo il gestore dell'evento non sono più disponibili
+    const dt = e.dataTransfer;
+    const entries = Array.from(dt.items || []).filter(i => i.kind === "file").map(i => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null));
+    const plain = Array.from(dt.files || []);
+    try {
+      const out = [];
+      if (entries.length && entries.every(Boolean)) {
+        for (const en of entries) await walkEntry(en, state.ui.currentFolder, out, true);
+      } else {
+        plain.forEach(file => out.push({ file, folder: state.ui.currentFolder }));
+      }
+      await importItems(out);
+    } catch (err) {
+      console.error(err);
+      setStatus("Impossibile leggere gli elementi trascinati: " + (err.message || err), "err");
+    }
+  });
+}
+
+async function walkEntry(entry, folder, out, top) {
+  if (entry.isFile) {
+    const file = await new Promise((res, rej) => entry.file(res, rej));
+    out.push({ file, folder });
+  } else if (entry.isDirectory) {
+    const sub = FolderLib.join(folder, entry.name);
+    const reader = entry.createReader();
+    let batch;
+    do {
+      batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+      for (const child of batch) await walkEntry(child, sub, out, false);
+    } while (batch.length);
+  }
+}
+
+// =====================================================================
+//  Schermata ORGANIZZA (cartelle, sottocartelle, spostamenti)
 // =====================================================================
 function renderDocSelect() {
   const sel = $("docselect");
   sel.innerHTML = "";
   if (!state.index.docs.length) {
     sel.appendChild(new Option("(nessun documento)", ""));
-  } else {
-    state.index.docs.forEach(d => sel.appendChild(new Option(d.name, d.id)));
-    if (state.docId) sel.value = state.docId;
+    return;
   }
+  // elenco ordinato per cartella e nome
+  [...state.index.docs].sort((a, b) => (a.folder + "/" + a.name).localeCompare(b.folder + "/" + b.name, "it"))
+    .forEach(d => sel.appendChild(new Option((d.folder ? d.folder + " / " : "") + d.name, d.id)));
+  if (state.docId) sel.value = state.docId;
 }
 
 function snipCount(docId) {
@@ -254,78 +565,179 @@ function snipCount(docId) {
 }
 
 function renderOrg() {
-  const q = ($("docfilter").value || "").toLowerCase();
-  const docs = state.index.docs.filter(d => !q || d.name.toLowerCase().includes(q));
+  const q = ($("docfilter").value || "").toLowerCase().trim();
   const total = state.index.docs.reduce((a, d) => a + d.size, 0);
   $("orgsummary").textContent = state.index.docs.length
-    ? `${state.index.docs.length} documenti · ${fmtSize(total)} incorporati nel file`
+    ? `${state.index.docs.length} documenti · ${state.index.folders.length} cartelle · ${fmtSize(total)} incorporati nel file`
     : "Nessun documento importato.";
+  $("target").textContent = state.ui.currentFolder ? "📁 " + state.ui.currentFolder : "📂 cartella principale";
 
-  const folders = [...new Set(state.index.docs.map(d => d.folder).filter(Boolean))].sort();
-  const dl = $("folders");
-  dl.innerHTML = "";
-  folders.forEach(f => dl.appendChild(new Option(f)));
+  // barra della selezione
+  const sel = state.ui.selected;
+  [...sel].forEach(id => { if (!docById(id)) sel.delete(id); });
+  $("selbar").hidden = !sel.size;
+  if (sel.size) {
+    $("selcount").textContent = `${sel.size} selezionati`;
+    const m = $("selmove");
+    m.innerHTML = "";
+    FolderLib.options(state.index).forEach(o => m.appendChild(new Option(o.label, o.path)));
+  }
 
-  const list = $("doclist");
-  list.innerHTML = "";
-  const groups = {};
-  docs.forEach(d => (groups[d.folder || ""] = groups[d.folder || ""] || []).push(d));
-  Object.keys(groups).sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b))).forEach(f => {
-    const h = document.createElement("div");
-    h.className = "folderhead";
-    h.textContent = f ? "📁 " + f : "Senza cartella";
-    list.appendChild(h);
-    groups[f].sort((a, b) => a.name.localeCompare(b.name)).forEach(d => list.appendChild(docCard(d)));
-  });
+  const box = $("tree");
+  box.innerHTML = "";
+  if (q) {
+    const found = state.index.docs.filter(d => d.name.toLowerCase().includes(q));
+    if (!found.length) box.append(h("div", { class: "muted pad", text: "Nessun documento trovato." }));
+    found.sort((a, b) => a.name.localeCompare(b.name, "it")).forEach(d => box.append(docCard(d, true)));
+    return;
+  }
+  const tree = FolderLib.buildTree(state.index);
+  box.append(folderRow(tree, 0, true));
+  if (state.ui.creatingIn === "") box.append(newFolderInput("", 1));
+  if (state.ui.expanded.has("") || !state.ui.expanded.size) renderChildren(tree, 1, box);
 }
 
-function docCard(d) {
-  const el = document.createElement("div");
-  el.className = "doc";
-  const n = snipCount(d.id);
-  el.innerHTML = `<div class="docname"></div>
-    <div class="meta"><span></span> · Cartella: <input list="folders" placeholder="nessuna" /></div>
-    <div class="actions"></div>`;
-  el.querySelector(".docname").textContent = (d.type === "pdf" ? "📄 " : "🖼️ ") + d.name;
-  el.querySelector(".meta span").textContent = `${d.pages} pag. · ${fmtSize(d.size)} · ${n} snip`;
-  const inp = el.querySelector("input");
-  inp.value = d.folder || "";
-  inp.addEventListener("change", async () => {
-    d.folder = inp.value.trim();
-    try { await writeIndex(); renderOrg(); } catch (e) { setStatus("Errore: " + (e.message || e), "err"); }
+function renderChildren(node, depth, box) {
+  node.children.forEach(c => {
+    box.append(folderRow(c, depth, false));
+    if (state.ui.creatingIn === c.path) box.append(newFolderInput(c.path, depth + 1));
+    if (!state.ui.collapsed || !state.ui.collapsed.has(c.path)) renderChildren(c, depth + 1, box);
   });
+  node.docs.forEach(d => { const w = h("div", { style: `margin-left:${(depth) * 14}px` }, docCard(d, false)); box.append(w); });
+}
 
-  const act = el.querySelector(".actions");
-  const mk = (txt, fn, cls) => {
-    const b = document.createElement("button");
-    b.textContent = txt;
-    if (cls) b.className = cls;
-    b.addEventListener("click", () => fn(b));
-    act.appendChild(b);
-    return b;
+function folderRow(node, depth, isRoot) {
+  state.ui.collapsed = state.ui.collapsed || new Set();
+  const collapsed = state.ui.collapsed.has(node.path);
+  const hasKids = node.children.length || node.docs.length;
+  const row = h("div", { class: "frow" + (state.ui.currentFolder === node.path ? " cur" : ""), style: `margin-left:${depth * 14}px` });
+  row.append(h("span", { class: "twisty", text: isRoot ? "" : (hasKids ? (collapsed ? "▸" : "▾") : ""), onclick: ev => { ev.stopPropagation(); if (collapsed) state.ui.collapsed.delete(node.path); else state.ui.collapsed.add(node.path); renderOrg(); } }));
+  if (state.ui.renaming === node.path && !isRoot) {
+    const inp = h("input", { value: node.name });
+    const done = ok => {
+      const v = inp.value;
+      state.ui.renaming = null;
+      if (ok && v.trim() && v.trim() !== node.name) {
+        const np = FolderLib.renameFolder(state.index, node.path, v);
+        if (np === null) setStatus("Esiste già una cartella con quel nome.", "err");
+        else { if (state.ui.currentFolder === node.path || FolderLib.isInside(state.ui.currentFolder, node.path)) state.ui.currentFolder = np + state.ui.currentFolder.slice(node.path.length); saveIndex(); refreshAll(); return; }
+      }
+      renderOrg();
+    };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") done(true); else if (e.key === "Escape") done(false); });
+    inp.addEventListener("blur", () => done(true));
+    inp.addEventListener("click", e => e.stopPropagation());
+    row.append(h("span", { text: "📁" }), inp);
+    setTimeout(() => { inp.focus(); inp.select(); }, 0);
+  } else {
+    row.append(h("span", { text: isRoot ? "📂" : "📁" }),
+      h("span", { class: "fname", text: isRoot ? "Tutti i documenti" : node.name }),
+      h("span", { class: "fcount", text: String(FolderLib.countDocs(node)) }));
+  }
+  const icons = h("span", { class: "ficons" });
+  icons.append(h("button", { title: "Nuova sottocartella", text: "＋", onclick: ev => { ev.stopPropagation(); state.ui.creatingIn = node.path; state.ui.collapsed.delete(node.path); renderOrg(); } }));
+  if (!isRoot) {
+    icons.append(h("button", { title: "Rinomina", text: "✎", onclick: ev => { ev.stopPropagation(); state.ui.renaming = node.path; renderOrg(); } }));
+    const del = h("button", { title: "Elimina cartella (il contenuto passa alla cartella superiore)", text: "🗑" });
+    armConfirm(del, "🗑", () => {
+      FolderLib.deleteFolder(state.index, node.path);
+      if (FolderLib.isInside(state.ui.currentFolder, node.path)) state.ui.currentFolder = FolderLib.parentOf(node.path);
+      saveIndex(); refreshAll();
+      setStatus(`Cartella «${node.name}» eliminata: i documenti sono passati alla cartella superiore.`, "ok");
+    });
+    del.addEventListener("click", ev => ev.stopPropagation());
+    icons.append(del);
+  }
+  row.append(icons);
+  row.addEventListener("click", () => { state.ui.currentFolder = node.path; renderOrg(); });
+
+  // trascinare documenti o cartelle su una cartella per spostarli
+  row.addEventListener("dragover", e => {
+    const t = Array.from(e.dataTransfer.types || []);
+    if (t.includes("text/x-snipper-doc") || t.includes("text/x-snipper-folder")) { e.preventDefault(); row.classList.add("dragover"); }
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("dragover"));
+  row.addEventListener("drop", e => {
+    row.classList.remove("dragover");
+    const ids = e.dataTransfer.getData("text/x-snipper-doc");
+    const fol = e.dataTransfer.getData("text/x-snipper-folder");
+    if (ids) { e.preventDefault(); FolderLib.moveDocs(state.index, ids.split(","), node.path); state.ui.selected.clear(); saveIndex(); refreshAll(); }
+    else if (fol) {
+      e.preventDefault();
+      if (FolderLib.moveFolder(state.index, fol, node.path) === null) setStatus("Non posso spostare la cartella lì.", "err");
+      else { saveIndex(); refreshAll(); }
+    }
+  });
+  if (!isRoot) {
+    row.setAttribute("draggable", "true");
+    row.addEventListener("dragstart", e => { e.dataTransfer.setData("text/x-snipper-folder", node.path); e.dataTransfer.effectAllowed = "move"; });
+  }
+  return row;
+}
+
+function newFolderInput(parent, depth) {
+  const inp = h("input", { placeholder: "Nome della nuova cartella" });
+  const row = h("div", { class: "frow", style: `margin-left:${depth * 14}px` }, h("span", { class: "twisty" }), h("span", { text: "📁" }), inp);
+  const done = ok => {
+    const v = inp.value.trim();
+    state.ui.creatingIn = null;
+    if (ok && v) { const p = FolderLib.addFolder(state.index, parent, v); state.ui.currentFolder = p; saveIndex(); refreshAll(); }
+    else renderOrg();
   };
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") done(true); else if (e.key === "Escape") done(false); });
+  inp.addEventListener("blur", () => done(true));
+  setTimeout(() => inp.focus(), 0);
+  return row;
+}
+
+function docCard(d, showPath) {
+  const n = snipCount(d.id);
+  const miss = pagesMissing(d).length;
+  const ocrN = d.ocr && d.ocr.pages ? d.ocr.pages.length : 0;
+  const card = h("div", { class: "doc" + (state.ui.selected.has(d.id) ? " sel" : ""), draggable: "true" });
+  card.addEventListener("dragstart", e => {
+    const ids = state.ui.selected.has(d.id) ? [...state.ui.selected] : [d.id];
+    e.dataTransfer.setData("text/x-snipper-doc", ids.join(","));
+    e.dataTransfer.effectAllowed = "move";
+  });
+  const cb = h("input", { type: "checkbox" });
+  cb.checked = state.ui.selected.has(d.id);
+  cb.addEventListener("change", () => { if (cb.checked) state.ui.selected.add(d.id); else state.ui.selected.delete(d.id); renderOrg(); });
+  const meta = h("div", { class: "meta" }, `${d.pages} pag. · ${fmtSize(d.size)} · ${n} snip `);
+  if (miss) meta.append(h("span", { class: "badge warn", text: `${miss} pag. senza testo` }), " ");
+  if (ocrN) meta.append(h("span", { class: "badge", text: `OCR ${ocrN} pag.` }));
+  card.append(h("div", { class: "top" }, cb, h("div", {}, h("div", { class: "docname", text: (d.type === "pdf" ? "📄 " : "🖼️ ") + d.name }), meta,
+    showPath && d.folder ? h("div", { class: "meta", text: "📁 " + d.folder }) : null)));
+
+  const move = h("select", { title: "Sposta in…" });
+  FolderLib.options(state.index).forEach(o => move.appendChild(new Option(o.label, o.path)));
+  move.value = d.folder;
+  move.addEventListener("change", () => { FolderLib.moveDocs(state.index, [d.id], move.value); saveIndex(); renderOrg(); renderDocSelect(); });
+  card.append(h("div", { class: "moveto" }, "Sposta in:", move));
+
+  const act = h("div", { class: "actions" });
+  const mk = (txt, fn, cls) => { const b = h("button", { text: txt, class: cls || null }); b.addEventListener("click", () => fn(b)); act.append(b); return b; };
   mk("Apri", () => { showTab("snip"); openDoc(d.id); });
   mk("⬇ Originale", () => downloadOriginal(d));
   mk(`⬇ Con spunte${n ? " (" + n + ")" : ""}`, () => downloadAnnotated(d));
-  mk("🗑 Elimina", b => {
-    if (!b.classList.contains("armed")) {
-      b.classList.add("armed");
-      b.textContent = "Sicuro? Clicca di nuovo";
-      setTimeout(() => { b.classList.remove("armed"); b.textContent = "🗑 Elimina"; }, 4000);
-    } else {
-      removeDoc(d);
-    }
-  }, "danger");
-  return el;
+  mk("🔎 OCR", () => runOcr(d, miss ? "missing" : "all", 1));
+  const del = h("button", { text: "🗑 Elimina", class: "danger" });
+  armConfirm(del, "🗑 Elimina", () => removeDoc(d));
+  act.append(del);
+  card.append(act);
+  return card;
 }
 
-async function removeDoc(d) {
-  if (state.busy) return;
+async function removeDoc(d, silent) {
+  if (state.busy && !silent) return;
+  const prev = state.busy;
   state.busy = true;
   try {
-    setStatus("Elimino…");
+    if (!silent) setStatus("Elimino…");
     await deleteParts(d.parts);
+    if (d.ocr && d.ocr.parts) await deleteParts(d.ocr.parts).catch(() => {});
     state.index.docs = state.index.docs.filter(x => x.id !== d.id);
+    delete state.native[d.id]; delete state.ocr[d.id];
     await writeIndex();
     const had = state.log.some(r => r.docId === d.id);
     if (had) {
@@ -333,13 +745,12 @@ async function removeDoc(d) {
       await rewriteLog();
     }
     if (state.docId === d.id) closeDoc();
-    refreshAll();
-    setStatus(`«${d.name}» eliminato.` + (had ? " Le celle già spuntate restano in Excel ma non sono più collegate al documento." : ""), "ok");
+    if (!silent) { refreshAll(); setStatus(`«${d.name}» eliminato.` + (had ? " Le celle già spuntate restano in Excel ma non sono più collegate al documento." : ""), "ok"); }
   } catch (e) {
     console.error(e);
     setStatus("Errore: " + (e.message || e), "err");
   } finally {
-    state.busy = false;
+    state.busy = prev;
   }
 }
 
@@ -382,42 +793,50 @@ async function downloadAnnotated(d) {
 //  Visualizzazione del documento
 // =====================================================================
 function closeDoc() {
-  state.docId = null; state.pdf = null; state.image = null;
+  state.docId = null; state.pdf = null; state.image = null; state.pageItems = [];
   canvas.width = canvas.height = 0;
   canvas.style.width = canvas.style.height = "0px";
   $("stage").style.display = "none";
   $("empty").style.display = "";
   $("pageinfo").textContent = "–";
+  updateOcrInfo();
   drawMarks();
 }
 
-async function openDoc(id) {
-  const d = state.index.docs.find(x => x.id === id);
+async function openDoc(id, opts) {
+  opts = opts || {};
+  const d = docById(id);
   if (!d) return;
   try {
     setStatus(`Apro «${d.name}»…`);
     const bytes = await loadBytes(d);
+    if (state.pdf) { try { state.pdf.destroy(); } catch (e) { /* ok */ } }
     state.pdf = null; state.image = null;
     if (d.type === "pdf") {
       state.pdf = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
       state.numPages = state.pdf.numPages;
+      if (d.noText === undefined) {                       // file creato con una versione precedente
+        d.noText = await analyzeDoc(d, state.pdf);
+        await saveIndex();
+        refreshAll();
+      }
     } else {
-      state.image = await new Promise((res, rej) => {
-        const img = new Image();
-        img.onload = () => res(img);
-        img.onerror = () => rej(new Error("immagine non valida"));
-        img.src = URL.createObjectURL(new Blob([bytes], { type: d.mime }));
-      });
+      state.image = await blobToImage(bytes, d.mime);
       state.numPages = 1;
+      if (d.noText === undefined) { d.noText = [1]; await saveIndex(); }
     }
+    await loadOcr(d);
     state.docId = id;
-    state.page = 1;
+    state.page = Math.min(Math.max(1, opts.page || 1), state.numPages);
     state.sumItems = []; renderSum();
     $("docselect").value = id;
     $("stage").style.display = "";
     $("empty").style.display = "none";
+    state.pendingScroll = true;
     await renderPage();
-    setStatus("Documento aperto. Trascina un rettangolo sul valore da spuntare.", "ok");
+    updateOcrBanner();
+    updateOcrInfo();
+    setStatus(opts.message || "Documento aperto. Trascina un rettangolo sul valore da spuntare.", "ok");
   } catch (e) {
     console.error(e);
     setStatus("Impossibile aprire il documento: " + (e.message || e), "err");
@@ -427,8 +846,8 @@ async function openDoc(id) {
 async function renderPage() {
   const dpr = state.dpr = window.devicePixelRatio || 1;
   const ctx = canvas.getContext("2d");
-  state.textItems = [];
-  state.hasTextLayer = false;
+  const d = curDoc();
+  state.pageItems = [];
 
   if (state.pdf) {
     const page = await state.pdf.getPage(state.page);
@@ -439,25 +858,25 @@ async function renderPage() {
     canvas.style.width = viewport.width + "px";
     canvas.style.height = viewport.height + "px";
     await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: state.scale * dpr }) }).promise;
-    const tc = await page.getTextContent();
-    state.textItems = tc.items.map(it => {
-      const t = pdfjsLib.Util.transform(viewport.transform, it.transform);
-      return { str: it.str, x: t[4], y: t[5], w: it.width * state.scale, h: Math.hypot(t[2], t[3]) || it.height * state.scale };
-    });
-    state.hasTextLayer = state.textItems.some(i => i.str && i.str.trim());
+    await nativeItems(d.id, state.pdf, state.page);
   } else if (state.image) {
     const base = Math.min(state.image.naturalWidth, 700) * state.scale / 1.6;
     const w = Math.round(base);
-    const h = Math.round(base * state.image.naturalHeight / state.image.naturalWidth);
-    state.viewW = w; state.viewH = h;
+    const hh = Math.round(base * state.image.naturalHeight / state.image.naturalWidth);
+    state.viewW = w; state.viewH = hh;
     canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
+    canvas.height = Math.floor(hh * dpr);
     canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
+    canvas.style.height = hh + "px";
     ctx.drawImage(state.image, 0, 0, canvas.width, canvas.height);
+  }
+  if (d) {
+    const it = effItems(d.id, state.page);
+    state.pageItems = it ? it.map(i => ({ str: i.s, x: i.u1 * state.viewW, y: i.v2 * state.viewH, w: (i.u2 - i.u1) * state.viewW, h: (i.v2 - i.v1) * state.viewH })) : [];
   }
   $("pageinfo").textContent = state.docId ? `${state.page} / ${state.numPages}` : "–";
   drawMarks();
+  if (state.pendingScroll) { state.pendingScroll = false; scrollToMark(); }
 }
 
 async function gotoPage(n) {
@@ -471,24 +890,35 @@ async function zoom(f) {
   if (state.docId) await renderPage();
 }
 
-// Riquadri già fatti (dal registro) + quelli in attesa di somma
 function drawMarks() {
   overlay.querySelectorAll(".mark").forEach(n => n.remove());
   if (!state.docId) return;
   const W = state.viewW, H = state.viewH;
   const add = (r, cls, label) => {
-    const d = document.createElement("div");
-    d.className = "mark " + cls;
-    Object.assign(d.style, {
+    const el = h("div", { class: "mark " + cls });
+    Object.assign(el.style, {
       left: Math.min(r.u1, r.u2) * W + "px", top: Math.min(r.v1, r.v2) * H + "px",
       width: Math.abs(r.u2 - r.u1) * W + "px", height: Math.abs(r.v2 - r.v1) * H + "px"
     });
-    if (label) { const b = document.createElement("b"); b.textContent = label; d.appendChild(b); }
-    overlay.appendChild(d);
+    if (label) el.append(h("b", { text: label }));
+    overlay.append(el);
   };
-  state.log.filter(r => r.docId === state.docId && r.page === state.page)
-    .forEach(r => add(r, (r.type === "SUM SNIP" ? "sum " : "") + (r.id === state.focusId ? "focus" : ""), "#" + r.id));
+  const focusing = state.focusId != null;
+  state.log.filter(r => r.docId === state.docId && r.page === state.page).forEach(r => {
+    const isF = r.id === state.focusId;
+    add(r, (r.type === "SUM SNIP" ? "sum " : "") + (isF ? "focus" : (focusing ? "dim" : "")), "#" + r.id);
+  });
   state.sumItems.filter(s => s.page === state.page).forEach(s => add(s, "pending", "+"));
+  state.searchMarks.filter(m => m.docId === state.docId && m.page === state.page).forEach(m => add(m, "search", ""));
+}
+
+function scrollToMark() {
+  const m = overlay.querySelector(".mark.focus") || overlay.querySelector(".mark.search");
+  const v = $("viewer");
+  if (!m || !v) return;
+  const top = m.offsetTop - v.clientHeight / 2 + m.offsetHeight / 2;
+  const left = m.offsetLeft - v.clientWidth / 2 + m.offsetWidth / 2;
+  v.scrollTo({ top: Math.max(0, top), left: Math.max(0, left), behavior: "smooth" });
 }
 
 // =====================================================================
@@ -500,17 +930,13 @@ function setupSelection() {
     const r = overlay.getBoundingClientRect();
     return { x: Math.min(Math.max(e.clientX - r.left, 0), r.width), y: Math.min(Math.max(e.clientY - r.top, 0), r.height), w: r.width, h: r.height };
   };
-
   overlay.addEventListener("mousedown", e => {
     if (!state.docId) return;
-    const p = pos(e);
-    start = p;
-    box = document.createElement("div");
-    box.className = "sel";
-    overlay.appendChild(box);
+    start = pos(e);
+    box = h("div", { class: "sel" });
+    overlay.append(box);
     e.preventDefault();
   });
-
   window.addEventListener("mousemove", e => {
     if (!start) return;
     const p = pos(e);
@@ -519,14 +945,10 @@ function setupSelection() {
       width: Math.abs(p.x - start.x) + "px", height: Math.abs(p.y - start.y) + "px"
     });
   });
-
   window.addEventListener("mouseup", async e => {
     if (!start) return;
     const p = pos(e);
-    const f = {
-      u1: Math.min(start.x, p.x) / p.w, v1: Math.min(start.y, p.y) / p.h,
-      u2: Math.max(start.x, p.x) / p.w, v2: Math.max(start.y, p.y) / p.h
-    };
+    const f = { u1: Math.min(start.x, p.x) / p.w, v1: Math.min(start.y, p.y) / p.h, u2: Math.max(start.x, p.x) / p.w, v2: Math.max(start.y, p.y) / p.h };
     const tiny = (f.u2 - f.u1) * p.w < 4 || (f.v2 - f.v1) * p.h < 4;
     start = null;
     if (box) { box.remove(); box = null; }
@@ -536,20 +958,21 @@ function setupSelection() {
 }
 
 // =====================================================================
-//  Lettura dell'area (testo del PDF, altrimenti OCR)
+//  Lettura dell'area: testo (PDF o OCR salvato), altrimenti OCR al volo
 // =====================================================================
 async function readArea(f) {
-  if (state.pdf && state.hasTextLayer) {
-    const t = SnipLib.textInRect(state.textItems, {
-      x1: f.u1 * state.viewW, y1: f.v1 * state.viewH, x2: f.u2 * state.viewW, y2: f.v2 * state.viewH
-    });
-    if (t) return { text: t, source: "testo PDF" };
+  if (state.pageItems.length) {
+    const t = SnipLib.textInRect(state.pageItems, { x1: f.u1 * state.viewW, y1: f.v1 * state.viewH, x2: f.u2 * state.viewW, y2: f.v2 * state.viewH });
+    if (t) {
+      const o = state.ocr[state.docId];
+      return { text: t, source: o && o[state.page] && o[state.page].length ? "OCR salvato" : "testo PDF" };
+    }
   }
-  return { text: await ocrArea(f), source: "OCR" };
+  return { text: await ocrArea(f), source: "OCR al volo" };
 }
 
 async function ocrArea(f) {
-  setStatus("Lettura con OCR… (la prima volta scarica i dati della lingua, ci vuole qualche secondo)");
+  setStatus("Pagina senza testo: leggo l'area con l'OCR… (suggerimento: usa «Avvia OCR» per tutta la pagina o il documento)");
   const sx = f.u1 * canvas.width, sy = f.v1 * canvas.height;
   const sw = (f.u2 - f.u1) * canvas.width, sh = (f.v2 - f.v1) * canvas.height;
   const up = Math.max(1, Math.min(3, 300 / Math.max(sh, 1)));
@@ -591,7 +1014,7 @@ async function onSnip(f) {
     const addr = await writeToCell(value, "#C6EFCE");
     const id = nextSnipId();
     await addLog([{ id, cell: addr, type: "SNIP", page: state.page, ...f, text, value }]);
-    state.focusId = null;
+    state.focusId = null; state.searchMarks = [];
     drawMarks();
     setStatus(`#${id}: scritto ${isNum ? value : "«" + text + "»"} in ${addr} (${source}).`, "ok");
     if ($("movedown").checked) await moveDown();
@@ -607,14 +1030,9 @@ function renderSum() {
   const ul = $("sumlist");
   ul.innerHTML = "";
   state.sumItems.forEach((it, i) => {
-    const li = document.createElement("li");
-    li.textContent = `${it.text}  →  ${it.value}`;
-    const b = document.createElement("button");
-    b.textContent = "✕";
-    b.title = "Rimuovi";
-    b.addEventListener("click", () => { state.sumItems.splice(i, 1); renderSum(); drawMarks(); });
-    li.appendChild(b);
-    ul.appendChild(li);
+    const li = h("li", { text: `${it.text}  →  ${it.value}` });
+    li.append(h("button", { text: "✕", title: "Rimuovi", onclick: () => { state.sumItems.splice(i, 1); renderSum(); drawMarks(); } }));
+    ul.append(li);
   });
   const total = state.sumItems.reduce((a, b) => a + b.value, 0);
   $("sumtotal").textContent = "Totale: " + (Math.round(total * 1e6) / 1e6).toLocaleString("it-IT", { maximumFractionDigits: 6 });
@@ -645,30 +1063,146 @@ async function writeSum() {
 }
 
 // =====================================================================
-//  Trova lo snip della cella selezionata
+//  Clic su una cella con uno snip: apre il pannello, il documento e lo evidenzia
 // =====================================================================
-async function findSnip() {
+async function registerSelectionHandler() {
   try {
-    const addr = await Excel.run(async ctx => {
-      const c = ctx.workbook.getSelectedRange().getCell(0, 0);
-      c.load("address");
+    await Excel.run(async ctx => {
+      ctx.workbook.onSelectionChanged.add(onSelectionChanged);
       await ctx.sync();
-      return c.address;
     });
+  } catch (e) { console.warn("Evento di selezione non disponibile", e); }
+}
+
+let selTimer = null;
+function onSelectionChanged() {
+  clearTimeout(selTimer);
+  selTimer = setTimeout(() => { handleSelection().catch(e => console.warn(e)); }, 200);
+}
+
+async function currentCellAddress() {
+  return Excel.run(async ctx => {
+    const c = ctx.workbook.getSelectedRange().getCell(0, 0);
+    c.load("address");
+    await ctx.sync();
+    return c.address;
+  });
+}
+
+async function handleSelection() {
+  if (state.busy || !$("autoopen").checked || !state.log.length) return;
+  const addr = await currentCellAddress();
+  const rows = state.log.filter(r => r.cell === addr);
+  if (!rows.length) {
+    if (state.focusId != null) { state.focusId = null; drawMarks(); }
+    return;
+  }
+  try { if (Office.addin && Office.addin.showAsTaskpane) await Office.addin.showAsTaskpane(); } catch (e) { /* già aperto */ }
+  await focusSnip(rows[0], addr);
+}
+
+async function focusSnip(row, addr) {
+  if (!docById(row.docId)) { setStatus("Il documento di questo snip non è più nel file.", "err"); return; }
+  showTab("snip");
+  state.focusId = row.id;
+  state.searchMarks = [];
+  const msg = `Snip #${row.id} · ${addr || row.cell} · «${row.text}» · pagina ${row.page}`;
+  if (state.docId !== row.docId) {
+    await openDoc(row.docId, { page: row.page, message: msg });
+  } else {
+    state.page = row.page;
+    state.pendingScroll = true;
+    await renderPage();
+    setStatus(msg, "ok");
+  }
+}
+
+async function findSnipFromCell() {
+  try {
+    const addr = await currentCellAddress();
     const rows = state.log.filter(r => r.cell === addr);
     if (!rows.length) { setStatus(`Nessuno snip sulla cella ${addr}.`, "err"); return; }
-    const first = rows[0];
-    if (!state.index.docs.some(d => d.id === first.docId)) { setStatus("Il documento di questo snip non è più nel file.", "err"); return; }
-    showTab("snip");
-    if (state.docId !== first.docId) await openDoc(first.docId);
-    state.focusId = first.id;
-    state.page = first.page;
-    await renderPage();
-    setStatus(`Snip #${first.id} di ${addr}: pagina ${first.page}, «${first.text}».`, "ok");
+    await focusSnip(rows[0], addr);
   } catch (e) {
     console.error(e);
     setStatus("Errore: " + (e.message || e), "err");
   }
+}
+
+// =====================================================================
+//  Ricerca di parole in tutti i documenti
+// =====================================================================
+async function ensureDocText(doc, label) {
+  await loadOcr(doc);
+  if (doc.type !== "pdf") return;
+  const cached = state.native[doc.id];
+  if (cached && Object.keys(cached).length >= doc.pages) return;
+  let pdf = state.docId === doc.id ? state.pdf : null, own = false;
+  if (!pdf) {
+    setStatus(label);
+    pdf = await pdfjsLib.getDocument({ data: (await loadBytes(doc)).slice() }).promise;
+    own = true;
+  }
+  try { for (let n = 1; n <= doc.pages; n++) await nativeItems(doc.id, pdf, n); }
+  finally { if (own) { try { pdf.destroy(); } catch (e) { /* ok */ } } }
+}
+
+async function runSearch() {
+  const q = $("q").value.trim();
+  if (!q) { closeResults(); return; }
+  if (!state.index.docs.length) { setStatus("Non ci sono documenti da cercare.", "err"); return; }
+  if (state.busy) { setStatus("Attendi la fine dell'operazione in corso.", "err"); return; }
+  state.busy = true;
+  try {
+    const results = [];
+    const docs = [...state.index.docs].sort((a, b) => (a.folder + "/" + a.name).localeCompare(b.folder + "/" + b.name, "it"));
+    for (let i = 0; i < docs.length; i++) {
+      const d = docs[i];
+      await ensureDocText(d, `Leggo il testo di «${d.name}» (${i + 1}/${docs.length})…`);
+      for (let n = 1; n <= d.pages && results.length < 300; n++) {
+        const items = effItems(d.id, n);
+        if (!items) continue;
+        TextLib.search(TextLib.buildPage(items), q, 20).forEach(hit => results.push({ doc: d, page: n, hit }));
+      }
+    }
+    showResults(q, results);
+    const noText = state.index.docs.filter(d => pagesMissing(d).length).length;
+    setStatus(results.length ? `${results.length} risultati per «${q}».` + (noText ? ` ${noText} documento/i hanno pagine senza testo: fai l'OCR per includerle.` : "")
+      : `Nessun risultato per «${q}».` + (noText ? ` ${noText} documento/i hanno pagine senza testo: fai l'OCR per includerle nella ricerca.` : ""), results.length ? "ok" : "err");
+  } catch (e) {
+    console.error(e);
+    setStatus("Ricerca non riuscita: " + (e.message || e), "err");
+  } finally {
+    state.busy = false;
+  }
+}
+
+function showResults(q, results) {
+  $("results").hidden = false;
+  $("resultstitle").textContent = `${results.length} risultati per «${q}»`;
+  const ul = $("resultslist");
+  ul.innerHTML = "";
+  results.forEach(r => {
+    const s = r.hit.snippet;
+    const li = h("li", {}, h("span", { class: "rdoc", text: r.doc.name }), h("span", { class: "rpage", text: "pag. " + r.page }),
+      h("div", {}, s.before, h("mark", { text: s.match }), s.after));
+    li.addEventListener("click", () => openResult(r));
+    ul.append(li);
+  });
+}
+
+async function openResult(r) {
+  state.focusId = null;
+  state.searchMarks = r.hit.boxes.map(b => ({ docId: r.doc.id, page: r.page, ...b }));
+  state.pendingScroll = true;
+  if (state.docId !== r.doc.id) await openDoc(r.doc.id, { page: r.page, message: `Trovato in «${r.doc.name}», pagina ${r.page}.` });
+  else { state.page = r.page; await renderPage(); setStatus(`Trovato in «${r.doc.name}», pagina ${r.page}.`, "ok"); }
+}
+
+function closeResults() {
+  $("results").hidden = true;
+  state.searchMarks = [];
+  drawMarks();
 }
 
 // =====================================================================
@@ -706,10 +1240,10 @@ async function getLogSheet(ctx) {
   await ctx.sync();
   if (sh.isNullObject) {
     sh = ctx.workbook.worksheets.add(LOG_SHEET);
-    const h = sh.getRange("A1:N1");
-    h.numberFormat = [LOG_FORMAT.map(() => "@")];
-    h.values = [LOG_HEADER];
-    h.format.font.bold = true;
+    const hd = sh.getRange("A1:N1");
+    hd.numberFormat = [LOG_FORMAT.map(() => "@")];
+    hd.values = [LOG_HEADER];
+    hd.format.font.bold = true;
     sh.visibility = Excel.SheetVisibility.hidden;
     await ctx.sync();
   }
@@ -719,9 +1253,7 @@ async function getLogSheet(ctx) {
 async function addLog(partial) {
   const doc = curDoc();
   const when = new Date().toLocaleString("it-IT");
-  const rows = partial.map(p => ({
-    when, docId: state.docId, file: doc ? doc.name : "", fmt: $("numfmt").value, ...p
-  }));
+  const rows = partial.map(p => ({ when, docId: state.docId, file: doc ? doc.name : "", fmt: $("numfmt").value, ...p }));
   await Excel.run(async ctx => {
     const sh = await getLogSheet(ctx);
     const used = sh.getUsedRange();
