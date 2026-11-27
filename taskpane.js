@@ -1115,32 +1115,50 @@ function setupSelection() {
 //  Lettura dell'area: testo (PDF o OCR salvato), altrimenti OCR al volo
 // =====================================================================
 async function readArea(f) {
-  if ($("readmode").value === "ocr") return { text: await ocrArea(f), source: "OCR sull'area" };
-  if (state.pageItems.length) {
-    const t = SnipLib.textInRect(state.pageItems, { x1: f.u1 * state.viewW, y1: f.v1 * state.viewH, x2: f.u2 * state.viewW, y2: f.v2 * state.viewH });
-    if (t) {
-      const o = state.ocr[state.docId];
-      return { text: t, source: o && o[state.page] && o[state.page].length ? "OCR salvato" : "testo PDF" };
-    }
+  const mode = $("readmode").value;
+  let layer = "", layerSrc = "testo PDF";
+  if (mode !== "ocr" && state.pageItems.length) {
+    layer = SnipLib.textInRect(state.pageItems, { x1: f.u1 * state.viewW, y1: f.v1 * state.viewH, x2: f.u2 * state.viewW, y2: f.v2 * state.viewH });
+    const o = state.ocr[state.docId];
+    if (o && o[state.page] && o[state.page].length) layerSrc = "OCR salvato";
   }
-  return { text: await ocrArea(f), source: "OCR al volo" };
+  if (mode === "text") return { text: layer, source: layerSrc };
+
+  // verifica con l'OCR su ciò che si vede davvero nel rettangolo
+  let r = null;
+  try { r = await ocrArea(f); } catch (e) { console.warn("OCR sull'area non riuscito", e); }
+  if (!r) return { text: layer, source: layerSrc + " (OCR di verifica non disponibile)" };
+  if (r.ink < 0.003) return { text: "", source: "" };                          // area vuota
+  if (!r.text) return { text: layer, source: layerSrc };
+  if (!layer) return { text: r.text, source: "OCR sull'area" };
+  const norm = x => x.replace(/\s+/g, "").toLowerCase();
+  return norm(layer) === norm(r.text)
+    ? { text: layer, source: layerSrc + ", verificato con OCR" }
+    : { text: r.text, source: "OCR sull'area: il testo nascosto del PDF era diverso («" + layer + "»)" };
 }
 
 let areaWorker = null;
 async function ocrArea(f) {
-  setStatus("Leggo l'area con l'OCR… (la prima volta scarica i dati della lingua)");
+  setStatus("Leggo l'area… (la prima volta scarica i dati della lingua)");
   const sx = f.u1 * canvas.width, sy = f.v1 * canvas.height;
-  const sw = (f.u2 - f.u1) * canvas.width, sh = (f.v2 - f.v1) * canvas.height;
-  const up = Math.max(1, Math.min(3, 300 / Math.max(sh, 1)));
+  const sw = Math.max(1, (f.u2 - f.u1) * canvas.width), sh = Math.max(1, (f.v2 - f.v1) * canvas.height);
+  // quanto "inchiostro" c'è nel rettangolo: se è bianco, non c'è nulla da leggere
+  const probe = canvas.getContext("2d").getImageData(Math.floor(sx), Math.floor(sy), Math.ceil(sw), Math.ceil(sh));
+  let dark = 0;
+  for (let i = 0; i < probe.data.length; i += 4) if (probe.data[i] * 0.3 + probe.data[i + 1] * 0.59 + probe.data[i + 2] * 0.11 < 170) dark++;
+  const ink = dark / (probe.data.length / 4);
+  if (ink < 0.003) return { text: "", ink };
+  const up = Math.max(1, Math.min(4, 120 / Math.max(sh, 1)));
   const tmp = document.createElement("canvas");
-  tmp.width = Math.ceil(sw * up) + 20;
-  tmp.height = Math.ceil(sh * up) + 20;
+  tmp.width = Math.ceil(sw * up) + 40;
+  tmp.height = Math.ceil(sh * up) + 40;
   const c = tmp.getContext("2d");
   c.fillStyle = "#fff"; c.fillRect(0, 0, tmp.width, tmp.height);
-  c.drawImage(canvas, sx, sy, sw, sh, 10, 10, sw * up, sh * up);
+  c.imageSmoothingQuality = "high";
+  c.drawImage(canvas, sx, sy, sw, sh, 20, 20, sw * up, sh * up);
   if (!areaWorker) areaWorker = await Tesseract.createWorker(["ita", "eng"]);
   const { data } = await areaWorker.recognize(tmp);
-  return SnipLib.cleanRead(data.text);
+  return { text: SnipLib.cleanRead(data.text), ink };
 }
 
 // chiede all'utente il testo da inserire quando nell'area non c'è nulla di leggibile
