@@ -1155,7 +1155,7 @@ function drawMarks() {
       xDone = true;
       const x = h("button", { class: "markx", title: "Elimina questo snip (definitivo, come Delete Snip)", text: "✕" });
       x.addEventListener("mousedown", ev => ev.stopPropagation());
-      x.addEventListener("click", ev => { ev.stopPropagation(); ev.preventDefault(); deleteSnipIds([r.id]); });
+      x.addEventListener("click", ev => { ev.stopPropagation(); ev.preventDefault(); deleteSnipPart(r); });
       el.append(x);
     }
   });
@@ -1199,17 +1199,17 @@ function setupSelection() {
       const x1 = Math.min(m.u1, m.u2) * W, x2 = Math.max(m.u1, m.u2) * W, y1 = Math.min(m.v1, m.v2) * H, y2 = Math.max(m.v1, m.v2) * H;
       if (px < x1 - M || px > x2 + M || py < y1 - M || py > y2 + M) return;
       const a = (x2 - x1) * (y2 - y1);
-      if (a < area) { area = a; best = { id: m.id, x2, y1 }; }
+      if (a < area) { area = a; best = { row: m, x2, y1 }; }
     });
     let x = overlay.querySelector(".hoverx");
     if (!best) { if (x) x.remove(); return; }
     if (!x) {
       x = h("button", { class: "markx hoverx", title: "Elimina questo snip (definitivo, come Delete Snip)", text: "✕" });
       x.addEventListener("mousedown", ev => ev.stopPropagation());
-      x.addEventListener("click", ev => { ev.stopPropagation(); ev.preventDefault(); const id = +x.dataset.id; x.remove(); deleteSnipIds([id]); });
+      x.addEventListener("click", ev => { ev.stopPropagation(); ev.preventDefault(); const row = x._row; x.remove(); if (row) deleteSnipPart(row); });
       overlay.append(x);
     }
-    x.dataset.id = best.id;
+    x._row = best.row;
     x.style.left = (best.x2 - 11) + "px";
     x.style.top = (best.y1 - 11) + "px";
   });
@@ -1894,6 +1894,43 @@ async function goToSnip(g) {
     const ids = [...new Set(state.log.filter(r => r.cell === g.cell).map(r => r.id))];
     await focusCell(g.cell, ids, Math.max(0, ids.indexOf(g.id)));
   } catch (e) { setStatus("Errore: " + (e.message || e), "err"); }
+}
+
+// Numeri contenuti in un rettangolo di Sum Snip (anche tanti, se è stato trascinato su una colonna)
+function sumRowValues(row) {
+  const fmt = $("numfmt").value, want = Number(row.value);
+  for (const f of [fmt, fmt === "it" ? "en" : "it"]) {
+    const v = SnipLib.extractNumbers(row.text, f).nums.map(n => n.v);
+    if (v.length && Math.abs(v.reduce((a, b) => a + b, 0) - want) < 1e-6) return v;
+  }
+  return [want];
+}
+
+// X su un riquadro: per un Sum Snip toglie SOLO quel riquadro (e i suoi numeri) dalla somma;
+// se era l'ultimo, o se non è una somma, elimina tutto lo snip come Delete Snip.
+async function deleteSnipPart(row) {
+  const sibs = state.log.filter(r => r.id === row.id);
+  if (row.type !== "SUM SNIP" || sibs.length <= 1) { await deleteSnipIds([row.id]); return; }
+  if (state.busy) { setStatus("Attendi la fine dell'operazione in corso.", "err"); return; }
+  state.busy = true;
+  try {
+    state.log = state.log.filter(r => r !== row);
+    const left = state.log.filter(r => r.id === row.id);
+    const values = left.flatMap(sumRowValues);
+    const formula = SnipLib.sumFormula(values);
+    await Excel.run(async ctx => {
+      rangeByAddress(ctx, row.cell).formulas = [[formula]];
+      await ctx.sync();
+    });
+    await rewriteLog();
+    drawMarks(); renderList(); renderOrg();
+    setStatus(`Tolto ${row.text.length > 40 ? row.text.slice(0, 40) + "…" : row.text} dalla somma di ${row.cell}. Ora: ${formula}`, "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("Errore: " + (e.message || e), "err");
+  } finally {
+    state.busy = false;
+  }
 }
 
 async function deleteSnipIds(ids) {
