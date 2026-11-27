@@ -33,12 +33,13 @@
       const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y);
       const w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
       const isSum = r.type === "SUM SNIP";
-      const col = isSum ? rgb(0.10, 0.44, 0.77) : rgb(0.13, 0.45, 0.27);
+      const col = isSum ? rgb(0.72, 0.53, 0.04) : r.type === "VALIDATION" ? rgb(0.17, 0.58, 0.28) : r.type === "EXCEPTION" ? rgb(0.84, 0.16, 0.16) : rgb(0.18, 0.53, 0.87);
+      const kind = isSum ? "SUM " : r.type === "VALIDATION" ? "OK " : r.type === "EXCEPTION" ? "ECC " : "";
 
       page.drawRectangle({ x, y, width: w, height: h, borderColor: col, borderWidth: 1.2, color: col, opacity: 0.15, borderOpacity: 0.95 });
 
       // etichetta "#12 Foglio1!B5", sopra il riquadro (o sotto se non c'è spazio)
-      const label = clean(`#${r.id} ${isSum ? "SUM " : ""}${r.cell}`);
+      const label = clean(`#${r.id} ${kind}${r.cell}`);
       const fs = Math.max(6, Math.min(10, dispW / 80));
       const tw = font.widthOfTextAtSize(label, fs);
       const labH = fs + 3;

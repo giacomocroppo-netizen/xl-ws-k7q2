@@ -8,6 +8,7 @@ const NS_DOC = "urn:snipper:doc:v1";       // contenuto dei documenti e dell'OCR
 const CHUNK = 2000000;                     // caratteri per blocco
 const WARN_MB = 15;
 const OCR_SCALE = 2;                       // risoluzione dell'OCR (2 = circa 150 dpi)
+const COL = { snip: "#DDEBF7", sum: "#FFF2CC", val: "#C6EFCE", exc: "#FFC7CE" };
 const EXT_OK = /\.(pdf|png|jpe?g)$/i;
 
 const state = {
@@ -62,7 +63,25 @@ function h(tag, props, ...kids) {
 // =====================================================================
 //  Avvio
 // =====================================================================
+let readyDone;
+const readyP = new Promise(r => { readyDone = r; });
+
+async function showPane() {
+  try { if (Office.addin && Office.addin.showAsTaskpane) await Office.addin.showAsTaskpane(); } catch (e) { /* già aperto */ }
+}
+const ribbon = fn => async ev => {
+  try { await readyP; await fn(); } catch (e) { console.warn(e); }
+  ev.completed();
+};
+
 Office.onReady(async info => {
+  try {
+    Office.actions.associate("setModeSnip", ribbon(async () => { showTab("snip"); setMode("snip"); await showPane(); }));
+    Office.actions.associate("setModeSum", ribbon(async () => { showTab("snip"); setMode("sum"); await showPane(); }));
+    Office.actions.associate("setModeVal", ribbon(async () => { showTab("snip"); setMode("val"); await showPane(); }));
+    Office.actions.associate("setModeExc", ribbon(async () => { showTab("snip"); setMode("exc"); await showPane(); }));
+    Office.actions.associate("deleteSnip", ribbon(async () => { await showPane(); await deleteOnSelection(); }));
+  } catch (e) { console.warn("Comandi della barra non disponibili", e); }
   if (info.host !== Office.HostType.Excel) setStatus("Questo componente funziona solo in Excel.", "err");
   initUI();
   try {
@@ -76,6 +95,7 @@ Office.onReady(async info => {
     console.error(e);
     setStatus("Errore all'avvio: " + (e.message || e), "err");
   }
+  readyDone();
   registerSelectionHandler();
   try { if (Office.addin && Office.addin.setStartupBehavior) await Office.addin.setStartupBehavior(Office.StartupBehavior.load); } catch (e) { /* non supportato */ }
 });
@@ -107,6 +127,11 @@ function initUI() {
   $("docselect").addEventListener("change", e => e.target.value && openDoc(e.target.value));
   $("mode-snip").addEventListener("click", () => setMode("snip"));
   $("mode-sum").addEventListener("click", () => setMode("sum"));
+  $("mode-val").addEventListener("click", () => setMode("val"));
+  $("mode-exc").addEventListener("click", () => setMode("exc"));
+  $("snipdel").addEventListener("click", () => deleteOnSelection());
+  $("tab-list").addEventListener("click", () => { showTab("list"); renderList(); });
+  ["lfilter", "ltype", "ldoc"].forEach(i => $(i).addEventListener("input", renderList));
   $("prev").addEventListener("click", () => gotoPage(state.page - 1));
   $("next").addEventListener("click", () => gotoPage(state.page + 1));
   $("zoomin").addEventListener("click", () => zoom(1.2));
@@ -151,19 +176,24 @@ function armConfirm(btn, label, fn) {
 function showTab(t) {
   $("view-snip").hidden = t !== "snip";
   $("view-org").hidden = t !== "org";
+  $("view-list").hidden = t !== "list";
   $("tab-snip").classList.toggle("active", t === "snip");
   $("tab-org").classList.toggle("active", t === "org");
+  $("tab-list").classList.toggle("active", t === "list");
   if (t === "snip" && state.docId) scheduleRender();
 }
 
+const MODE_HELP = {
+  snip: "SNIP: trascina un rettangolo sul valore (finisce nella cella selezionata, poi si passa a quella a destra). Tieni premuto CTRL per aggiungere il testo alla cella precedente.",
+  sum: "SUM SNIP: seleziona i numeri uno alla volta, poi premi «Scrivi somma in cella».",
+  val: "VALIDATION: trascina un rettangolo sull'area verificata: la cella diventa verde con ✓.",
+  exc: "EXCEPTION: trascina un rettangolo sull'area con anomalia: la cella diventa rossa con ✗."
+};
 function setMode(m) {
   state.mode = m;
-  $("mode-snip").classList.toggle("active", m === "snip");
-  $("mode-sum").classList.toggle("active", m === "sum");
+  ["snip", "sum", "val", "exc"].forEach(k => $("mode-" + k).classList.toggle("active", k === m));
   $("sumpanel").hidden = m !== "sum";
-  setStatus(m === "snip"
-    ? "SNIP: trascina un rettangolo sul valore (finisce nella cella selezionata, poi si passa a quella a destra). Tieni premuto CTRL per aggiungere il testo alla cella precedente."
-    : "SUM SNIP: seleziona i numeri uno alla volta, poi premi «Scrivi somma in cella».");
+  setStatus(MODE_HELP[m]);
 }
 
 function refreshAll() {
@@ -942,7 +972,8 @@ function drawMarks() {
   const focusing = state.focusId != null;
   state.log.filter(r => r.docId === state.docId && r.page === state.page).forEach(r => {
     const isF = r.id === state.focusId;
-    add(r, (r.type === "SUM SNIP" ? "sum " : "") + (isF ? "focus" : (focusing ? "dim" : "")), "#" + r.id);
+    const tc = r.type === "SUM SNIP" ? "sum " : r.type === "VALIDATION" ? "val " : r.type === "EXCEPTION" ? "exc " : "";
+    add(r, tc + (isF ? "focus" : (focusing ? "dim" : "")), "#" + r.id);
   });
   state.sumItems.filter(s => s.page === state.page).forEach(s => add(s, "pending", "+"));
   state.searchMarks.filter(m => m.docId === state.docId && m.page === state.page).forEach(m => add(m, "search", ""));
@@ -1030,6 +1061,19 @@ async function onSnip(f, withCtrl) {
   if (state.busy) return;
   state.busy = true;
   try {
+    if (state.mode === "val" || state.mode === "exc") {
+      const isV = state.mode === "val";
+      const sym = isV ? "✓" : "✗";
+      const addr = await writeToCell(sym, isV ? COL.val : COL.exc, false, isV ? "#006100" : "#9C0006");
+      const id = nextSnipId();
+      await addLog([{ id, cell: addr, type: isV ? "VALIDATION" : "EXCEPTION", page: state.page, ...f, text: sym, value: sym }]);
+      state.focusId = null; state.searchMarks = [];
+      drawMarks();
+      state.lastCell = addr;
+      state.lastNext = await moveRight();
+      setStatus(`#${id}: ${isV ? "validazione" : "eccezione"} in ${addr}. Prossimo in ${state.lastNext}.`, "ok");
+      return;
+    }
     const { text, source } = await readArea(f);
     if (!text) { setStatus("Nessun testo trovato nell'area selezionata.", "err"); return; }
     const fmt = $("numfmt").value;
@@ -1052,10 +1096,10 @@ async function onSnip(f, withCtrl) {
     if (withCtrl) {
       const sel = await currentCellAddress();
       const target = state.lastCell && state.lastNext === sel ? state.lastCell : sel;
-      const r = await appendToCell(target, text, "#C6EFCE");
+      const r = await appendToCell(target, text, COL.snip);
       addr = target; appended = r;
     } else {
-      addr = await writeToCell(value, "#C6EFCE");
+      addr = await writeToCell(value, COL.snip);
     }
     const id = nextSnipId();
     await addLog([{ id, cell: addr, type: "SNIP", page: state.page, ...f, text, value }]);
@@ -1094,7 +1138,7 @@ async function writeSum() {
   try {
     const values = state.sumItems.map(i => i.value);
     const formula = SnipLib.sumFormula(values);
-    const addr = await writeToCell(formula, "#BDD7EE", true);
+    const addr = await writeToCell(formula, COL.sum, true);
     const id = nextSnipId();
     await addLog(state.sumItems.map(i => ({
       id, cell: addr, type: "SUM SNIP", page: i.page, u1: i.u1, v1: i.v1, u2: i.u2, v2: i.v2, text: i.text, value: i.value
@@ -1280,12 +1324,13 @@ function closeResults() {
 // =====================================================================
 //  Excel: scrittura nelle celle e registro nascosto
 // =====================================================================
-async function writeToCell(value, color, isFormula) {
+async function writeToCell(value, color, isFormula, fontColor) {
   return Excel.run(async ctx => {
     const cell = ctx.workbook.getSelectedRange().getCell(0, 0);
     cell.load("address");
     if (isFormula) cell.formulas = [[value]]; else cell.values = [[value]];
     cell.format.fill.color = color;
+    cell.format.font.color = fontColor || "#000000";
     await ctx.sync();
     return cell.address;
   });
@@ -1494,4 +1539,103 @@ async function compressDocs(list, level) {
   } finally {
     state.busy = false;
   }
+}
+
+// =====================================================================
+//  Elenco degli snip, selezione ed eliminazione
+// =====================================================================
+function snipGroups() {
+  const m = new Map();
+  state.log.forEach(r => {
+    let g = m.get(r.id);
+    if (!g) { g = { id: r.id, type: r.type, cell: r.cell, docId: r.docId, file: r.file, page: r.page, texts: [] }; m.set(r.id, g); }
+    g.texts.push(r.text);
+  });
+  return [...m.values()].sort((a, b) => a.id - b.id);
+}
+
+const TAGS = { "SNIP": ["snip", "Snip"], "SUM SNIP": ["sum", "Sum"], "VALIDATION": ["val", "✓"], "EXCEPTION": ["exc", "✗"] };
+
+function renderList() {
+  const all = snipGroups();
+  const docSel = $("ldoc");
+  const keep = docSel.value;
+  docSel.innerHTML = "";
+  docSel.appendChild(new Option("Tutti i documenti", ""));
+  [...new Set(all.map(g => g.docId))].forEach(id => { const d = docById(id); docSel.appendChild(new Option(d ? d.name : (all.find(g => g.docId === id).file + " (rimosso)"), id)); });
+  docSel.value = [...docSel.options].some(o => o.value === keep) ? keep : "";
+  const q = ($("lfilter").value || "").toLowerCase().trim(), tp = $("ltype").value, dc = docSel.value;
+  const rows = all.filter(g => (!tp || g.type === tp) && (!dc || g.docId === dc) &&
+    (!q || (g.cell + " " + g.file + " " + g.texts.join(" ") + " #" + g.id).toLowerCase().includes(q)));
+  $("lsummary").textContent = `${rows.length} di ${all.length} snip`;
+  const ul = $("llist");
+  ul.innerHTML = "";
+  rows.forEach(g => {
+    const [cls, lab] = TAGS[g.type] || ["snip", g.type];
+    const del = h("button", { text: "🗑", title: "Elimina questo snip (definitivo)" });
+    armConfirm(del, "🗑", () => deleteSnipIds([g.id]));
+    del.addEventListener("click", ev => ev.stopPropagation());
+    const txt = g.texts.join(" + ");
+    const li = h("li", {}, h("span", { class: "lid", text: "#" + g.id }), h("span", { class: "tag " + cls, text: lab }),
+      h("div", { class: "lbody" }, h("div", { text: g.cell + "  ·  " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt) }),
+        h("div", { class: "lmeta", text: `${g.file} · pag. ${g.page}` })), del);
+    li.addEventListener("click", () => goToSnip(g));
+    ul.append(li);
+  });
+}
+
+async function selectCell(addr) {
+  return Excel.run(async ctx => {
+    const r = rangeByAddress(ctx, addr);
+    r.worksheet.activate();
+    r.select();
+    await ctx.sync();
+  });
+}
+
+async function goToSnip(g) {
+  try {
+    await selectCell(g.cell);
+    const ids = [...new Set(state.log.filter(r => r.cell === g.cell).map(r => r.id))];
+    await focusCell(g.cell, ids, Math.max(0, ids.indexOf(g.id)));
+  } catch (e) { setStatus("Errore: " + (e.message || e), "err"); }
+}
+
+async function deleteSnipIds(ids) {
+  if (state.busy) { setStatus("Attendi la fine dell'operazione in corso.", "err"); return; }
+  state.busy = true;
+  try {
+    const set = new Set(ids);
+    const cells = [...new Set(state.log.filter(r => set.has(r.id)).map(r => r.cell))];
+    state.log = state.log.filter(r => !set.has(r.id));
+    await Excel.run(async ctx => {
+      for (const addr of cells) {
+        const c = rangeByAddress(ctx, addr);
+        const left = [...new Map(state.log.filter(r => r.cell === addr && r.type === "SNIP").map(r => [r.id, r])).values()];
+        const other = state.log.some(r => r.cell === addr && r.type !== "SNIP");
+        if (!left.length && !other) c.clear("All");
+        else if (left.length && !other) {
+          c.values = [[left.length === 1 && left[0].value !== "" && !isNaN(Number(left[0].value)) && String(Number(left[0].value)) === String(left[0].value) ? Number(left[0].value) : left.map(r => r.text).join(" - ")]];
+        }
+      }
+      await ctx.sync();
+    });
+    await rewriteLog();
+    state.focusId = null; state.nav = null; updateNav(); drawMarks(); renderList(); renderOrg();
+    setStatus(`Eliminat${ids.length === 1 ? "o" : "i"} ${ids.length} snip (${cells.join(", ")}).`, "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("Errore: " + (e.message || e), "err");
+  } finally {
+    state.busy = false;
+  }
+}
+
+async function deleteOnSelection() {
+  try {
+    const addr = await currentCellAddress();
+    const ids = [...new Set(state.log.filter(r => r.cell === addr).map(r => r.id))];
+    if (!ids.length) { setStatus(`Nessuno snip sulla cella ${addr}.`, "err"); return; }
+    await deleteSnipIds(ids);
+  } catch (e) { setStatus("Errore: " + (e.message || e), "err"); }
 }

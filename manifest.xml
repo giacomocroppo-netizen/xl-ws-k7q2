@@ -4,8 +4,8 @@
            xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
-  <Id>3c1d7a52-6f0e-4b8a-9d41-5e2a7b9c0f13</Id>
-  <Version>2.0.0.0</Version>
+  <Id>a7e4b9d0-2c35-4f61-8e7a-1d9c5b3f6a28</Id>
+  <Version>3.0.0.0</Version>
   <ProviderName>Snipper</ProviderName>
   <DefaultLocale>it-IT</DefaultLocale>
   <DisplayName DefaultValue="Snipper"/>
@@ -42,32 +42,53 @@
           </GetStarted>
           <FunctionFile resid="Snipper.Taskpane.Url"/>
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
-            <OfficeTab id="TabHome">
-              <Group id="Snipper.Group">
-                <Label resid="Snipper.Group.Label"/>
-                <Icon>
-                  <bt:Image size="16" resid="Icon.16"/>
-                  <bt:Image size="32" resid="Icon.32"/>
-                  <bt:Image size="80" resid="Icon.80"/>
-                </Icon>
+            <CustomTab id="Snipper.Tab">
+              <Group id="Snipper.Group.Open">
+                <Label resid="Snipper.Group.Open.Label"/>
+                <Icon><bt:Image size="16" resid="Icon.16"/><bt:Image size="32" resid="Icon.32"/><bt:Image size="80" resid="Icon.80"/></Icon>
                 <Control xsi:type="Button" id="Snipper.OpenButton">
-                  <Label resid="Snipper.Button.Label"/>
-                  <Supertip>
-                    <Title resid="Snipper.Button.Label"/>
-                    <Description resid="Snipper.Button.Tip"/>
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="Icon.16"/>
-                    <bt:Image size="32" resid="Icon.32"/>
-                    <bt:Image size="80" resid="Icon.80"/>
-                  </Icon>
-                  <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>SnipperPane</TaskpaneId>
-                    <SourceLocation resid="Snipper.Taskpane.Url"/>
-                  </Action>
+                  <Label resid="Snipper.OpenButton.Label"/>
+                  <Supertip><Title resid="Snipper.OpenButton.Label"/><Description resid="Snipper.OpenButton.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="Icon.16"/><bt:Image size="32" resid="Icon.32"/><bt:Image size="80" resid="Icon.80"/></Icon>
+                  <Action xsi:type="ShowTaskpane"><TaskpaneId>SnipperPane</TaskpaneId><SourceLocation resid="Snipper.Taskpane.Url"/></Action>
                 </Control>
               </Group>
-            </OfficeTab>
+              <Group id="Snipper.Group.Snips">
+                <Label resid="Snipper.Group.Snips.Label"/>
+                <Icon><bt:Image size="16" resid="Icon.16"/><bt:Image size="32" resid="Icon.32"/><bt:Image size="80" resid="Icon.80"/></Icon>
+                <Control xsi:type="Button" id="Snipper.Snip">
+                  <Label resid="Snipper.Snip.Label"/>
+                  <Supertip><Title resid="Snipper.Snip.Label"/><Description resid="Snipper.Snip.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="snip.16"/><bt:Image size="32" resid="snip.32"/><bt:Image size="80" resid="snip.80"/></Icon>
+                  <Action xsi:type="ExecuteFunction"><FunctionName>setModeSnip</FunctionName></Action>
+                </Control>
+                <Control xsi:type="Button" id="Snipper.Sum">
+                  <Label resid="Snipper.Sum.Label"/>
+                  <Supertip><Title resid="Snipper.Sum.Label"/><Description resid="Snipper.Sum.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="sum.16"/><bt:Image size="32" resid="sum.32"/><bt:Image size="80" resid="sum.80"/></Icon>
+                  <Action xsi:type="ExecuteFunction"><FunctionName>setModeSum</FunctionName></Action>
+                </Control>
+                <Control xsi:type="Button" id="Snipper.Val">
+                  <Label resid="Snipper.Val.Label"/>
+                  <Supertip><Title resid="Snipper.Val.Label"/><Description resid="Snipper.Val.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="val.16"/><bt:Image size="32" resid="val.32"/><bt:Image size="80" resid="val.80"/></Icon>
+                  <Action xsi:type="ExecuteFunction"><FunctionName>setModeVal</FunctionName></Action>
+                </Control>
+                <Control xsi:type="Button" id="Snipper.Exc">
+                  <Label resid="Snipper.Exc.Label"/>
+                  <Supertip><Title resid="Snipper.Exc.Label"/><Description resid="Snipper.Exc.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="exc.16"/><bt:Image size="32" resid="exc.32"/><bt:Image size="80" resid="exc.80"/></Icon>
+                  <Action xsi:type="ExecuteFunction"><FunctionName>setModeExc</FunctionName></Action>
+                </Control>
+                <Control xsi:type="Button" id="Snipper.Del">
+                  <Label resid="Snipper.Del.Label"/>
+                  <Supertip><Title resid="Snipper.Del.Label"/><Description resid="Snipper.Del.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="del.16"/><bt:Image size="32" resid="del.32"/><bt:Image size="80" resid="del.80"/></Icon>
+                  <Action xsi:type="ExecuteFunction"><FunctionName>deleteSnip</FunctionName></Action>
+                </Control>
+              </Group>
+              <Label resid="Snipper.Tab.Label"/>
+            </CustomTab>
           </ExtensionPoint>
         </DesktopFormFactor>
       </Host>
@@ -77,6 +98,21 @@
         <bt:Image id="Icon.16" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-16.png"/>
         <bt:Image id="Icon.32" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-32.png"/>
         <bt:Image id="Icon.80" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-80.png"/>
+        <bt:Image id="snip.16" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-snip-16.png"/>
+        <bt:Image id="snip.32" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-snip-32.png"/>
+        <bt:Image id="snip.80" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-snip-80.png"/>
+        <bt:Image id="sum.16" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-sum-16.png"/>
+        <bt:Image id="sum.32" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-sum-32.png"/>
+        <bt:Image id="sum.80" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-sum-80.png"/>
+        <bt:Image id="val.16" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-val-16.png"/>
+        <bt:Image id="val.32" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-val-32.png"/>
+        <bt:Image id="val.80" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-val-80.png"/>
+        <bt:Image id="exc.16" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-exc-16.png"/>
+        <bt:Image id="exc.32" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-exc-32.png"/>
+        <bt:Image id="exc.80" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-exc-80.png"/>
+        <bt:Image id="del.16" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-del-16.png"/>
+        <bt:Image id="del.32" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-del-32.png"/>
+        <bt:Image id="del.80" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-del-80.png"/>
       </bt:Images>
       <bt:Urls>
         <bt:Url id="Snipper.Url" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/"/>
@@ -86,10 +122,25 @@
         <bt:String id="Snipper.GetStarted.Title" DefaultValue="Snipper è pronto"/>
         <bt:String id="Snipper.Group.Label" DefaultValue="Snipper"/>
         <bt:String id="Snipper.Button.Label" DefaultValue="Snipper"/>
+        <bt:String id="Snipper.Snip.Label" DefaultValue="Snip"/>
+        <bt:String id="Snipper.Sum.Label" DefaultValue="Sum Snip"/>
+        <bt:String id="Snipper.Val.Label" DefaultValue="Validation Snip"/>
+        <bt:String id="Snipper.Exc.Label" DefaultValue="Exception Snip"/>
+        <bt:String id="Snipper.Del.Label" DefaultValue="Delete Snip"/>
+        <bt:String id="Snipper.Tab.Label" DefaultValue="SNIPPER"/>
+        <bt:String id="Snipper.Group.Open.Label" DefaultValue="Documenti"/>
+        <bt:String id="Snipper.Group.Snips.Label" DefaultValue="Snips"/>
+        <bt:String id="Snipper.OpenButton.Label" DefaultValue="Apri Snipper"/>
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="Snipper.GetStarted.Desc" DefaultValue="Apri il pannello Snipper dalla scheda Home."/>
         <bt:String id="Snipper.Button.Tip" DefaultValue="Apre il pannello per spuntare documenti (SNIP, SUM SNIP)."/>
+        <bt:String id="Snipper.Snip.Tip" DefaultValue="Snip: legge il valore e lo scrive nella cella"/>
+        <bt:String id="Snipper.Sum.Tip" DefaultValue="Sum Snip: somma più valori"/>
+        <bt:String id="Snipper.Val.Tip" DefaultValue="Validation Snip: cella verde con ✓"/>
+        <bt:String id="Snipper.Exc.Tip" DefaultValue="Exception Snip: cella rossa con ✗"/>
+        <bt:String id="Snipper.Del.Tip" DefaultValue="Elimina in modo definitivo lo snip della cella selezionata"/>
+        <bt:String id="Snipper.OpenButton.Tip" DefaultValue="Apre il pannello Snipper con i documenti."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

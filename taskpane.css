@@ -26,15 +26,20 @@ button:hover, .btn:hover { background: #e9e9e9; }
 #canvas { display: block; }
 #overlay { position: absolute; inset: 0; cursor: crosshair; }
 .sel { position: absolute; border: 2px dashed #d9480f; background: rgba(217,72,15,.12); pointer-events: none; }
-.mark { position: absolute; border: 2px solid #217346; background: rgba(33,115,70,.15); pointer-events: none; }
-.mark.sum { border-color: #1971c2; background: rgba(25,113,194,.15); }
-.mark.pending { border-style: dashed; border-color: #1971c2; background: rgba(25,113,194,.08); }
+.mark { position: absolute; border: 2px solid #2e86de; background: rgba(46,134,222,.18); pointer-events: none; }
+.mark.sum { border-color: #e0a800; background: rgba(255,204,0,.28); }
+.mark.val { border-color: #2b9348; background: rgba(43,147,72,.2); }
+.mark.exc { border-color: #d62828; background: rgba(214,40,40,.18); }
+.mark.pending { border-style: dashed; border-color: #e0a800; background: rgba(255,204,0,.15); }
 .mark.focus { border-color: #d9480f; border-width: 3px; background: rgba(217,72,15,.22); box-shadow: 0 0 0 4px rgba(217,72,15,.35); animation: pulse 1.2s ease-in-out 4; z-index: 2; }
 .mark.dim { opacity: .35; }
 .mark.search { border-color: #e67700; background: rgba(250,204,21,.40); }
 @keyframes pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(217,72,15,.30); } 50% { box-shadow: 0 0 0 9px rgba(217,72,15,.12); } }
-.mark b { position: absolute; top: -15px; left: -2px; background: #217346; color: #fff; font-size: 10px; padding: 0 4px; border-radius: 3px 3px 0 0; white-space: nowrap; }
-.mark.sum b, .mark.pending b { background: #1971c2; }
+.mark b { position: absolute; top: -15px; left: -2px; background: #2e86de; color: #fff; font-size: 10px; padding: 0 4px; border-radius: 3px 3px 0 0; white-space: nowrap; }
+.mark.sum b { background: #b8860b; }
+.mark.val b { background: #2b9348; }
+.mark.exc b { background: #d62828; }
+.mark.pending b { background: #b8860b; }
 .mark.focus b { background: #d9480f; }
 
 .tabs { display: flex; background: #fff; border-bottom: 1px solid #e3e3e3; }
@@ -96,3 +101,12 @@ button.danger.armed { background: #b00020; color: #fff; border-color: #b00020; }
 details.panel summary { cursor: pointer; }
 #viewer { touch-action: pan-x pan-y; }
 #snipnav { margin: 0 4px; }
+
+.llist { list-style: none; margin: 0; padding: 0; }
+.llist li { display: flex; gap: 6px; align-items: center; border-bottom: 1px solid #e3e3e3; padding: 5px 4px; cursor: pointer; font-size: 12px; }
+.llist li:hover { background: #f0f6ff; }
+.llist .lid { font-weight: 600; min-width: 28px; }
+.llist .lbody { flex: 1; min-width: 0; }
+.llist .lmeta { color: #666; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { display: inline-block; border-radius: 3px; padding: 0 5px; font-size: 10px; color: #fff; }
+.tag.snip { background: #2e86de; } .tag.sum { background: #b8860b; } .tag.val { background: #2b9348; } .tag.exc { background: #d62828; }
