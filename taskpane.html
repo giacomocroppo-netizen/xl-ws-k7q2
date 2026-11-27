@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=15" />
+  <link rel="stylesheet" href="taskpane.css?v=16" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
@@ -28,10 +28,9 @@
     <div class="toolbar">
       <button id="foldersbtn" class="tbtn" title="Filtra i documenti per cartella">Folders ▾</button>
       <button id="docbtn" class="tbtn grow" title="Scegli il documento">(nessun documento) ▾</button>
-      <input id="q" type="search" placeholder="Search…" title="Cerca una parola o un numero in tutti i documenti (Invio)" />
-      <button id="qgo" class="tbtn sq" title="Cerca">↵</button>
       <span class="navbox"><button id="snipprev" class="tbtn sq" title="Snip precedente della cella" hidden>◀</button><span id="snipnav" class="muted" hidden></span><button id="snipnext" class="tbtn sq" title="Snip successivo della cella" hidden>▶</button></span>
       <button id="morebtn" class="tbtn sq" title="Altre opzioni">⋯</button>
+      <span class="qbox"><input id="q" type="search" placeholder="Search…" title="Cerca una parola o un numero in tutti i documenti (Invio)" /><button id="qgo" title="Cerca (Invio)"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l4.5 4.5"/></svg></button></span>
     </div>
 
     <div id="pop-folders" class="pop" hidden>
@@ -199,10 +198,10 @@
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js?v=15"></script>
-  <script src="folder-lib.js?v=15"></script>
-  <script src="text-lib.js?v=15"></script>
-  <script src="export-lib.js?v=15"></script>
-  <script src="taskpane.js?v=15"></script>
+  <script src="snip-lib.js?v=16"></script>
+  <script src="folder-lib.js?v=16"></script>
+  <script src="text-lib.js?v=16"></script>
+  <script src="export-lib.js?v=16"></script>
+  <script src="taskpane.js?v=16"></script>
 </body>
 </html>

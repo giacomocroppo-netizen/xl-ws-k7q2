@@ -252,7 +252,7 @@ function renderDocList() {
 function updateDocBtn() {
   const d = curDoc();
   const f = state.ui.folderFilter.size;
-  $("foldersbtn").textContent = "Folders" + (f ? ` (${f})` : "") + " ▾";
+  $("foldersbtn").textContent = "Fold" + (f ? ` (${f})` : "…") + " ▾";
   $("docbtn").textContent = (d ? d.name : (state.index.docs.length ? "Scegli documento" : "(nessun documento)")) + " ▾";
 }
 
