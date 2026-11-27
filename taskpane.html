@@ -8,18 +8,12 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=5" />
+  <link rel="stylesheet" href="taskpane.css?v=6" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
   <input id="importdir" type="file" webkitdirectory hidden />
   <div id="dropover" class="dropover" hidden><div>📥 Rilascia qui documenti (PDF, PNG, JPG) o cartelle</div></div>
-
-  <div class="tabs">
-    <button id="tab-snip" class="tab active">✂️ Spunta</button>
-    <button id="tab-list" class="tab">📋 Elenco</button>
-    <button id="tab-org" class="tab">📁 Organizza</button>
-  </div>
 
   <div id="ocrbanner" class="banner" hidden>
     <div id="ocrtext"></div>
@@ -29,46 +23,61 @@
     </div>
   </div>
 
-  <!-- ===== SCHERMATA SPUNTA ===== -->
+  <!-- ===== DOCUMENT VIEWER ===== -->
   <section id="view-snip">
-    <div class="bar">
-      <select id="docselect" title="Documento aperto"></select>
-      <label class="btn primary" for="import" title="Aggiungi documenti (puoi anche trascinarli nel pannello)">➕ Importa</label>
+    <div class="toolbar">
+      <button id="foldersbtn" class="tbtn" title="Filtra i documenti per cartella">Folders ▾</button>
+      <button id="docbtn" class="tbtn grow" title="Scegli il documento">(nessun documento) ▾</button>
+      <button id="next" class="tbtn sq" title="Pagina successiva">↓</button>
+      <button id="prev" class="tbtn sq" title="Pagina precedente">↑</button>
+      <span class="pg"><input id="pageinput" type="number" min="1" value="1" /> / <span id="pagetotal">–</span></span>
+      <button id="morebtn" class="tbtn sq" title="Altre opzioni">⋯</button>
+      <input id="q" type="search" placeholder="Search…" title="Cerca una parola o un numero in tutti i documenti" />
     </div>
 
-    <div class="bar">
-      <input id="q" type="search" placeholder="🔍 Cerca una parola in tutti i documenti…" />
-      <button id="qgo">Cerca</button>
+    <div id="pop-folders" class="pop" hidden>
+      <div class="pophead"><strong>Folders</strong><button class="popclose" data-close="pop-folders">✕</button></div>
+      <div id="folderlist" class="poplist"></div>
+      <div class="popfoot"><button id="folderall" class="linkbtn">Mostra tutte le cartelle</button></div>
     </div>
+    <div id="pop-docs" class="pop" hidden>
+      <div class="pophead"><strong>Documents</strong><button class="popclose" data-close="pop-docs">✕</button></div>
+      <input id="docfilter2" type="search" placeholder="Filter…" />
+      <div id="doclist" class="poplist"></div>
+      <div class="popfoot"><button id="popimport" class="linkbtn">＋ Importa documenti…</button></div>
+    </div>
+    <div id="pop-more" class="pop" hidden>
+      <div class="pophead"><strong>Opzioni</strong><button class="popclose" data-close="pop-more">✕</button></div>
+      <div class="opts">
+        <div class="row2"><span>Zoom</span><span><button id="zoomout">−</button> <button id="zoomfit">Adatta</button> <button id="zoomin">+</button></span></div>
+        <label>Numeri:
+          <select id="numfmt">
+            <option value="it">Italiano (1.234,56)</option>
+            <option value="en">Inglese (1,234.56)</option>
+          </select>
+        </label>
+        <button id="ocrcur">🔎 OCR di questo documento</button>
+        <button id="dlorig">⬇ Scarica originale</button>
+        <button id="dlann">⬇ Scarica con spunte</button>
+        <button id="snipdel" title="Elimina in modo definitivo gli snip della cella selezionata">🗑 Elimina snip della cella selezionata</button>
+      </div>
+    </div>
+
     <div id="results" class="panel" hidden>
       <div class="row"><strong id="resultstitle">Risultati</strong><button id="resultsclose" title="Chiudi">✕</button></div>
       <ul id="resultslist"></ul>
     </div>
 
-    <div class="bar">
-      <div class="seg">
-        <button id="mode-snip" class="active" title="Seleziona un'area: il valore va nella cella attiva">SNIP</button>
-        <button id="mode-sum" title="Seleziona più numeri: scrive la somma come formula">SUM</button>
-        <button id="mode-val" title="Validation Snip: cella verde con ✓">✓</button>
-        <button id="mode-exc" title="Exception Snip: cella rossa con ✗">✗</button>
+    <div id="modestrip" class="modestrip snip">
+      <div class="chips">
+        <button id="mode-snip" class="chip snip active" title="Snip">SNIP</button>
+        <button id="mode-sum" class="chip sum" title="Sum Snip">SUM</button>
+        <button id="mode-val" class="chip val" title="Validation Snip">✓</button>
+        <button id="mode-exc" class="chip exc" title="Exception Snip">✗</button>
       </div>
-      <button id="prev" title="Pagina precedente">◀</button>
-      <span id="pageinfo">–</span>
-      <button id="next" title="Pagina successiva">▶</button>
-      <button id="zoomout" title="Riduci">−</button>
-      <button id="zoomin" title="Ingrandisci">+</button>
-      <button id="snipprev" title="Snip precedente della cella" hidden>◀</button><span id="snipnav" class="muted" hidden></span><button id="snipnext" title="Snip successivo della cella" hidden>▶</button>
-      <button id="snipdel" title="Elimina in modo definitivo gli snip della cella selezionata">🗑</button>
-      <button id="findsnip" title="Mostra nel documento lo snip della cella selezionata">🎯 Vai allo snip</button>
-    </div>
-
-    <div class="bar small">
-      <label>Numeri:
-        <select id="numfmt">
-          <option value="it">Italiano (1.234,56)</option>
-          <option value="en">Inglese (1,234.56)</option>
-        </select>
-      </label>
+      <span id="modehelp" class="modehelp"></span>
+      <span class="navbox"><button id="snipprev" title="Snip precedente della cella" hidden>◀</button><span id="snipnav" class="muted" hidden></span><button id="snipnext" title="Snip successivo della cella" hidden>▶</button>
+      <button id="findsnip" title="Mostra nel documento lo snip della cella selezionata">🎯</button></span>
     </div>
 
     <div id="sumpanel" class="panel" hidden>
@@ -86,90 +95,104 @@
         <div id="overlay"></div>
       </div>
       <div id="empty" class="empty">
-        <div class="bigdrop">📥<br>Trascina qui un documento (o una cartella)<br><span class="muted">oppure premi «➕ Importa»</span></div>
+        <div class="bigdrop">📥<br>Trascina qui un documento (o una cartella)<br><span class="muted">oppure usa «Import Documents» nella barra di Excel</span></div>
       </div>
     </div>
   </section>
 
-  <!-- ===== SCHERMATA ELENCO ===== -->
-  <section id="view-list" hidden>
-    <div class="bar">
-      <input id="lfilter" type="search" placeholder="Filtra: testo, cella, documento…" />
-    </div>
-    <div class="bar small">
-      <select id="ltype">
-        <option value="">Tutti i tipi</option>
-        <option value="SNIP">Snip</option>
-        <option value="SUM SNIP">Sum snip</option>
-        <option value="VALIDATION">Validation</option>
-        <option value="EXCEPTION">Exception</option>
-      </select>
-      <select id="ldoc"></select>
-    </div>
-    <div id="lsummary" class="muted pad"></div>
-    <ul id="llist" class="llist"></ul>
-  </section>
-
-  <!-- ===== SCHERMATA ORGANIZZA ===== -->
+  <!-- ===== ORGANIZER ===== -->
   <section id="view-org" hidden>
-    <details class="panel" open>
-      <summary><strong>⚙️ Impostazioni</strong></summary>
-      <div class="opts">
-        <label><input type="checkbox" id="asnumber" checked /> converti in numero (importi utilizzabili nei calcoli)</label>
-        <label><input type="checkbox" id="autoopen" checked /> apri lo snip cliccando la cella</label>
-      </div>
-    </details>
-    <details class="panel">
-      <summary><strong>🔎 OCR su tutti i documenti</strong></summary>
-      <div class="opts">
-        <select id="ocrallscope">
-          <option value="missing">solo pagine senza testo (consigliato)</option>
-          <option value="all">tutte le pagine di tutti i documenti</option>
-        </select>
-        <button id="ocrall" class="btn primary">Avvia OCR su tutti</button>
-      </div>
-    </details>
-    <details class="panel">
-      <summary><strong>🗜 Comprimi documenti</strong></summary>
-      <div class="opts">
-        <select id="cmplevel">
-          <option value="light">Leggera (mantiene tutto, risparmio piccolo)</option>
-          <option value="strong">Forte (immagini JPG, testo conservato, risparmio grande)</option>
-        </select>
-        <button id="cmpall" class="btn primary">Comprimi tutti</button>
-        <div class="muted">Con «Forte» il documento diventa un'immagine per pagina: il testo già letto resta cercabile e gli snip restano al loro posto, ma l'originale viene sostituito. Si sostituisce solo se il file diventa più piccolo.</div>
-      </div>
-    </details>
     <div class="bar">
-      <input id="docfilter" type="search" placeholder="Filtra per nome documento…" />
+      <button id="orgclose" class="btn">← Torna al documento</button>
+      <strong>Organizer</strong>
     </div>
-    <div class="bar small">
-      <span>Importa in: <strong id="target">📂 cartella principale</strong></span>
+    <div class="tabs">
+      <button id="stab-docs" class="tab active">📁 Documenti</button>
+      <button id="stab-list" class="tab">📋 Snip</button>
+      <button id="stab-tools" class="tab">🛠 Strumenti</button>
     </div>
-    <div id="selbar" class="bar small selbar" hidden>
-      <span id="selcount"></span>
-      <select id="selmove" title="Sposta i documenti selezionati"></select>
-      <button id="selmovego">Sposta</button>
-      <button id="seldelete" class="danger">🗑 Elimina</button>
-      <button id="selclear">Deseleziona</button>
-    </div>
-    <div id="orgsummary" class="muted pad"></div>
-    <div id="tree"></div>
-    <div id="dropzone" class="dropzone">
-      <div>📥 Trascina qui i documenti o le cartelle</div>
-      <div class="dzbtns">
-        <label class="btn primary" for="import">Importa documenti</label>
-        <label class="btn" for="importdir">Importa cartella</label>
+
+    <div id="org-docs">
+      <div id="dropzone" class="dropzone">
+        <div>📥 Trascina qui i documenti o le cartelle</div>
+        <div class="dzbtns">
+          <label class="btn primary" for="import">Importa documenti</label>
+          <label class="btn" for="importdir">Importa cartella</label>
+        </div>
       </div>
+      <div class="bar">
+        <input id="docfilter" type="search" placeholder="Filtra per nome documento…" />
+      </div>
+      <div class="bar small">
+        <span>Importa in: <strong id="target">📂 cartella principale</strong></span>
+      </div>
+      <div id="selbar" class="bar small selbar" hidden>
+        <span id="selcount"></span>
+        <select id="selmove" title="Sposta i documenti selezionati"></select>
+        <button id="selmovego">Sposta</button>
+        <button id="seldelete" class="danger">🗑 Elimina</button>
+        <button id="selclear">Deseleziona</button>
+      </div>
+      <div id="orgsummary" class="muted pad"></div>
+      <div id="tree"></div>
+    </div>
+
+    <div id="org-list" hidden>
+      <div class="bar">
+        <input id="lfilter" type="search" placeholder="Filtra: testo, cella, documento…" />
+      </div>
+      <div class="bar small">
+        <select id="ltype">
+          <option value="">Tutti i tipi</option>
+          <option value="SNIP">Snip</option>
+          <option value="SUM SNIP">Sum snip</option>
+          <option value="VALIDATION">Validation</option>
+          <option value="EXCEPTION">Exception</option>
+        </select>
+        <select id="ldoc"></select>
+      </div>
+      <div id="lsummary" class="muted pad"></div>
+      <ul id="llist" class="llist"></ul>
+    </div>
+
+    <div id="org-tools" hidden>
+      <details class="panel" open>
+        <summary><strong>⚙️ Impostazioni</strong></summary>
+        <div class="opts">
+          <label><input type="checkbox" id="asnumber" checked /> converti in numero (importi utilizzabili nei calcoli)</label>
+          <label><input type="checkbox" id="autoopen" checked /> apri lo snip cliccando la cella</label>
+        </div>
+      </details>
+      <details class="panel" open>
+        <summary><strong>🔎 OCR su tutti i documenti</strong></summary>
+        <div class="opts">
+          <select id="ocrallscope">
+            <option value="missing">solo pagine senza testo (consigliato)</option>
+            <option value="all">tutte le pagine di tutti i documenti</option>
+          </select>
+          <button id="ocrall" class="btn primary">Avvia OCR su tutti</button>
+        </div>
+      </details>
+      <details class="panel" open>
+        <summary><strong>🗜 Comprimi documenti</strong></summary>
+        <div class="opts">
+          <select id="cmplevel">
+            <option value="light">Leggera (mantiene tutto, risparmio piccolo)</option>
+            <option value="strong">Forte (immagini JPG, testo conservato, risparmio grande)</option>
+          </select>
+          <button id="cmpall" class="btn primary">Comprimi tutti</button>
+          <div class="muted wrap">Con «Forte» il documento diventa un'immagine per pagina: il testo già letto resta cercabile e gli snip restano al loro posto, ma l'originale viene sostituito. Si sostituisce solo se il file diventa più piccolo.</div>
+        </div>
+      </details>
     </div>
   </section>
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js?v=5"></script>
-  <script src="folder-lib.js?v=5"></script>
-  <script src="text-lib.js?v=5"></script>
-  <script src="export-lib.js?v=5"></script>
-  <script src="taskpane.js?v=5"></script>
+  <script src="snip-lib.js?v=6"></script>
+  <script src="folder-lib.js?v=6"></script>
+  <script src="text-lib.js?v=6"></script>
+  <script src="export-lib.js?v=6"></script>
+  <script src="taskpane.js?v=6"></script>
 </body>
 </html>

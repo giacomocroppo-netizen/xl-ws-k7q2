@@ -5,7 +5,7 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>a7e4b9d0-2c35-4f61-8e7a-1d9c5b3f6a28</Id>
-  <Version>3.0.0.0</Version>
+  <Version>4.0.0.0</Version>
   <ProviderName>Snipper</ProviderName>
   <DefaultLocale>it-IT</DefaultLocale>
   <DisplayName DefaultValue="Snipper"/>
@@ -43,9 +43,21 @@
           <FunctionFile resid="Snipper.Taskpane.Url"/>
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <CustomTab id="Snipper.Tab">
-              <Group id="Snipper.Group.Open">
-                <Label resid="Snipper.Group.Open.Label"/>
+              <Group id="Snipper.Group.Docs">
+                <Label resid="Snipper.Group.Docs.Label"/>
                 <Icon><bt:Image size="16" resid="Icon.16"/><bt:Image size="32" resid="Icon.32"/><bt:Image size="80" resid="Icon.80"/></Icon>
+                <Control xsi:type="Button" id="Snipper.Import">
+                  <Label resid="Snipper.Import.Label"/>
+                  <Supertip><Title resid="Snipper.Import.Label"/><Description resid="Snipper.Import.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="imp.16"/><bt:Image size="32" resid="imp.32"/><bt:Image size="80" resid="imp.80"/></Icon>
+                  <Action xsi:type="ExecuteFunction"><FunctionName>importDocs</FunctionName></Action>
+                </Control>
+                <Control xsi:type="Button" id="Snipper.Organizer">
+                  <Label resid="Snipper.Organizer.Label"/>
+                  <Supertip><Title resid="Snipper.Organizer.Label"/><Description resid="Snipper.Organizer.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="org.16"/><bt:Image size="32" resid="org.32"/><bt:Image size="80" resid="org.80"/></Icon>
+                  <Action xsi:type="ExecuteFunction"><FunctionName>openOrganizer</FunctionName></Action>
+                </Control>
                 <Control xsi:type="Button" id="Snipper.OpenButton">
                   <Label resid="Snipper.OpenButton.Label"/>
                   <Supertip><Title resid="Snipper.OpenButton.Label"/><Description resid="Snipper.OpenButton.Tip"/></Supertip>
@@ -68,6 +80,10 @@
                   <Icon><bt:Image size="16" resid="sum.16"/><bt:Image size="32" resid="sum.32"/><bt:Image size="80" resid="sum.80"/></Icon>
                   <Action xsi:type="ExecuteFunction"><FunctionName>setModeSum</FunctionName></Action>
                 </Control>
+              </Group>
+              <Group id="Snipper.Group.Check">
+                <Label resid="Snipper.Group.Check.Label"/>
+                <Icon><bt:Image size="16" resid="Icon.16"/><bt:Image size="32" resid="Icon.32"/><bt:Image size="80" resid="Icon.80"/></Icon>
                 <Control xsi:type="Button" id="Snipper.Val">
                   <Label resid="Snipper.Val.Label"/>
                   <Supertip><Title resid="Snipper.Val.Label"/><Description resid="Snipper.Val.Tip"/></Supertip>
@@ -113,6 +129,12 @@
         <bt:Image id="del.16" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-del-16.png"/>
         <bt:Image id="del.32" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-del-32.png"/>
         <bt:Image id="del.80" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-del-80.png"/>
+        <bt:Image id="imp.16" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-imp-16.png"/>
+        <bt:Image id="imp.32" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-imp-32.png"/>
+        <bt:Image id="imp.80" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-imp-80.png"/>
+        <bt:Image id="org.16" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-org-16.png"/>
+        <bt:Image id="org.32" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-org-32.png"/>
+        <bt:Image id="org.80" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/icon-org-80.png"/>
       </bt:Images>
       <bt:Urls>
         <bt:Url id="Snipper.Url" DefaultValue="https://giacomocroppo-netizen.github.io/snipper/"/>
@@ -129,8 +151,12 @@
         <bt:String id="Snipper.Del.Label" DefaultValue="Delete Snip"/>
         <bt:String id="Snipper.Tab.Label" DefaultValue="SNIPPER"/>
         <bt:String id="Snipper.Group.Open.Label" DefaultValue="Documenti"/>
-        <bt:String id="Snipper.Group.Snips.Label" DefaultValue="Snips"/>
         <bt:String id="Snipper.OpenButton.Label" DefaultValue="Apri Snipper"/>
+        <bt:String id="Snipper.Group.Docs.Label" DefaultValue="Documents"/>
+        <bt:String id="Snipper.Group.Snips.Label" DefaultValue="Snips"/>
+        <bt:String id="Snipper.Group.Check.Label" DefaultValue="Review"/>
+        <bt:String id="Snipper.Import.Label" DefaultValue="Import Documents"/>
+        <bt:String id="Snipper.Organizer.Label" DefaultValue="Organizer"/>
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="Snipper.GetStarted.Desc" DefaultValue="Apri il pannello Snipper dalla scheda Home."/>
@@ -141,6 +167,8 @@
         <bt:String id="Snipper.Exc.Tip" DefaultValue="Exception Snip: cella rossa con ✗"/>
         <bt:String id="Snipper.Del.Tip" DefaultValue="Elimina in modo definitivo lo snip della cella selezionata"/>
         <bt:String id="Snipper.OpenButton.Tip" DefaultValue="Apre il pannello Snipper con i documenti."/>
+        <bt:String id="Snipper.Import.Tip" DefaultValue="Importa PDF e immagini nel file Excel (anche trascinandoli)."/>
+        <bt:String id="Snipper.Organizer.Tip" DefaultValue="Organizza documenti, cartelle, elenco snip, OCR e compressione."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

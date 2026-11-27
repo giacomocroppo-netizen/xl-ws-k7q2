@@ -27,7 +27,7 @@ const state = {
   native: {},               // docId -> {pagina: [pezzi di testo normalizzati]}
   ocr: {},                  // docId -> {pagina: [parole normalizzate]}
   ocrDismissed: new Set(),
-  ui: { expanded: new Set(), creatingIn: null, renaming: null, selected: new Set(), currentFolder: "" },
+  ui: { folderFilter: new Set(), expanded: new Set(), creatingIn: null, renaming: null, selected: new Set(), currentFolder: "" },
   pendingScroll: false,
   busy: false
 };
@@ -80,6 +80,8 @@ Office.onReady(async info => {
     Office.actions.associate("setModeSum", ribbon(async () => { showTab("snip"); setMode("sum"); await showPane(); }));
     Office.actions.associate("setModeVal", ribbon(async () => { showTab("snip"); setMode("val"); await showPane(); }));
     Office.actions.associate("setModeExc", ribbon(async () => { showTab("snip"); setMode("exc"); await showPane(); }));
+    Office.actions.associate("openOrganizer", ribbon(async () => { showTab("org"); setOrgTab("docs"); await showPane(); }));
+    Office.actions.associate("importDocs", ribbon(async () => { showTab("org"); setOrgTab("docs"); await showPane(); flashDropzone(); }));
     Office.actions.associate("deleteSnip", ribbon(async () => { await showPane(); await deleteOnSelection(); }));
   } catch (e) { console.warn("Comandi della barra non disponibili", e); }
   if (info.host !== Office.HostType.Excel) setStatus("Questo componente funziona solo in Excel.", "err");
@@ -122,15 +124,26 @@ function initUI() {
     ev.target.value = "";
     importItems(f);
   });
-  $("tab-snip").addEventListener("click", () => showTab("snip"));
-  $("tab-org").addEventListener("click", () => { showTab("org"); renderOrg(); });
-  $("docselect").addEventListener("change", e => e.target.value && openDoc(e.target.value));
+  $("orgclose").addEventListener("click", () => showTab("snip"));
+  ["docs", "list", "tools"].forEach(k => $("stab-" + k).addEventListener("click", () => setOrgTab(k)));
+  $("foldersbtn").addEventListener("click", () => togglePop("pop-folders"));
+  $("docbtn").addEventListener("click", () => togglePop("pop-docs"));
+  $("morebtn").addEventListener("click", () => togglePop("pop-more"));
+  $("popimport").addEventListener("click", () => { showTab("org"); setOrgTab("docs"); flashDropzone(); });
+  $("folderall").addEventListener("click", () => { state.ui.folderFilter.clear(); renderFolderList(); renderDocList(); });
+  $("docfilter2").addEventListener("input", renderDocList);
+  document.querySelectorAll(".popclose").forEach(b => b.addEventListener("click", () => closePops()));
+  document.addEventListener("click", e => { if (!e.target.closest(".pop, #foldersbtn, #docbtn, #morebtn, #popimport")) closePops(); });
+  $("pageinput").addEventListener("change", () => gotoPage(parseInt($("pageinput").value, 10) || 1));
+  $("zoomfit").addEventListener("click", () => { state.zoom = 1; scheduleRender(); });
+  $("ocrcur").addEventListener("click", () => { const d = curDoc(); if (!d) return setStatus("Apri prima un documento.", "err"); closePops(); runOcr(d, pagesMissing(d).length ? "missing" : "all", state.page); });
+  $("dlorig").addEventListener("click", () => { const d = curDoc(); if (d) downloadOriginal(d); });
+  $("dlann").addEventListener("click", () => { const d = curDoc(); if (d) downloadAnnotated(d); });
   $("mode-snip").addEventListener("click", () => setMode("snip"));
   $("mode-sum").addEventListener("click", () => setMode("sum"));
   $("mode-val").addEventListener("click", () => setMode("val"));
   $("mode-exc").addEventListener("click", () => setMode("exc"));
   $("snipdel").addEventListener("click", () => deleteOnSelection());
-  $("tab-list").addEventListener("click", () => { showTab("list"); renderList(); });
   ["lfilter", "ltype", "ldoc"].forEach(i => $(i).addEventListener("input", renderList));
   $("prev").addEventListener("click", () => gotoPage(state.page - 1));
   $("next").addEventListener("click", () => gotoPage(state.page + 1));
@@ -141,7 +154,6 @@ function initUI() {
   $("sumclear").addEventListener("click", () => { state.sumItems = []; renderSum(); drawMarks(); });
   $("docfilter").addEventListener("input", renderOrg);
   $("q").addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
-  $("qgo").addEventListener("click", runSearch);
   $("resultsclose").addEventListener("click", closeResults);
   $("ocrrun").addEventListener("click", runBannerOcr);
   $("ocrlater").addEventListener("click", () => { docsNeedingOcr().forEach(d => state.ocrDismissed.add(d.id)); updateOcrBanner(); });
@@ -155,6 +167,7 @@ function initUI() {
   armConfirm($("seldelete"), "🗑 Elimina", async () => { const ids = [...state.ui.selected]; for (const id of ids) { const d = docById(id); if (d) await removeDoc(d, true); } state.ui.selected.clear(); refreshAll(); });
   try { $("autoopen").checked = localStorage.getItem("snipper.autoopen") !== "0"; } catch (e) { /* ok */ }
   $("autoopen").addEventListener("change", () => { try { localStorage.setItem("snipper.autoopen", $("autoopen").checked ? "1" : "0"); } catch (e) { /* ok */ } });
+  setMode("snip");
   setupSelection();
   setupDragDrop();
 }
@@ -174,24 +187,96 @@ function armConfirm(btn, label, fn) {
 }
 
 function showTab(t) {
-  $("view-snip").hidden = t !== "snip";
-  $("view-org").hidden = t !== "org";
-  $("view-list").hidden = t !== "list";
-  $("tab-snip").classList.toggle("active", t === "snip");
-  $("tab-org").classList.toggle("active", t === "org");
-  $("tab-list").classList.toggle("active", t === "list");
+  const org = t === "org" || t === "list";
+  $("view-snip").hidden = org;
+  $("view-org").hidden = !org;
+  closePops();
+  if (t === "list") setOrgTab("list");
+  if (t === "org") renderOrg();
   if (t === "snip" && state.docId) scheduleRender();
 }
 
+function setOrgTab(k) {
+  ["docs", "list", "tools"].forEach(x => { $("org-" + x).hidden = x !== k; $("stab-" + x).classList.toggle("active", x === k); });
+  if (k === "docs") renderOrg();
+  if (k === "list") renderList();
+}
+
+function flashDropzone() {
+  const z = $("dropzone");
+  z.classList.remove("flash");
+  void z.offsetWidth;
+  z.classList.add("flash");
+  z.scrollIntoView({ block: "nearest" });
+}
+
+function closePops() { ["pop-folders", "pop-docs", "pop-more"].forEach(i => { $(i).hidden = true; }); }
+function togglePop(id) {
+  const open = $(id).hidden;
+  closePops();
+  $(id).hidden = !open;
+  if (open && id === "pop-folders") renderFolderList();
+  if (open && id === "pop-docs") { $("docfilter2").value = ""; renderDocList(); $("docfilter2").focus(); }
+}
+
+function folderMatches(d) {
+  const f = state.ui.folderFilter;
+  if (!f.size) return true;
+  return [...f].some(p => d.folder === p || FolderLib.isInside(d.folder, p));
+}
+const visibleDocs = () => state.index.docs.filter(folderMatches).sort((a, b) => (a.folder + "/" + a.name).localeCompare(b.folder + "/" + b.name, "it"));
+
+function renderFolderList() {
+  const box = $("folderlist");
+  box.innerHTML = "";
+  const opts = FolderLib.options(state.index).filter(o => o.path !== "");
+  if (!opts.length) { box.append(h("div", { class: "muted wrap pad", text: "Non ci sono cartelle: creale in Organizer." })); return; }
+  opts.forEach(o => {
+    const cb = h("input", { type: "checkbox" });
+    cb.checked = state.ui.folderFilter.has(o.path);
+    const it = h("div", { class: "it" }, cb, h("span", { text: o.label }));
+    const toggle = () => { if (state.ui.folderFilter.has(o.path)) state.ui.folderFilter.delete(o.path); else state.ui.folderFilter.add(o.path); renderFolderList(); renderDocList(); updateDocBtn(); };
+    it.addEventListener("click", e => { if (e.target !== cb) toggle(); else toggle(); });
+    box.append(it);
+  });
+}
+
+function renderDocList() {
+  const q = ($("docfilter2").value || "").toLowerCase().trim();
+  const box = $("doclist");
+  box.innerHTML = "";
+  const list = visibleDocs().filter(d => !q || d.name.toLowerCase().includes(q));
+  if (!list.length) box.append(h("div", { class: "muted wrap pad", text: state.index.docs.length ? "Nessun documento corrisponde." : "Nessun documento importato." }));
+  list.forEach(d => {
+    const it = h("div", { class: "it" + (d.id === state.docId ? " cur" : "") }, h("span", { text: (d.type === "pdf" ? "📄 " : "🖼️ ") + d.name }), d.folder ? h("span", { class: "pth", text: d.folder }) : null);
+    it.addEventListener("click", () => { closePops(); openDoc(d.id); });
+    box.append(it);
+  });
+}
+
+function updateDocBtn() {
+  const d = curDoc();
+  const f = state.ui.folderFilter.size;
+  $("foldersbtn").textContent = "Folders" + (f ? ` (${f})` : "") + " ▾";
+  $("docbtn").textContent = (d ? d.name : (state.index.docs.length ? "Scegli documento" : "(nessun documento)")) + " ▾";
+}
+
+function updatePageUI() {
+  $("pageinput").value = state.docId ? state.page : 1;
+  $("pagetotal").textContent = state.docId ? state.numPages : "–";
+}
+
 const MODE_HELP = {
-  snip: "SNIP: trascina un rettangolo sul valore (finisce nella cella selezionata, poi si passa a quella a destra). Tieni premuto CTRL per aggiungere il testo alla cella precedente.",
-  sum: "SUM SNIP: seleziona i numeri uno alla volta, poi premi «Scrivi somma in cella».",
-  val: "VALIDATION: trascina un rettangolo sull'area verificata: la cella diventa verde con ✓.",
-  exc: "EXCEPTION: trascina un rettangolo sull'area con anomalia: la cella diventa rossa con ✗."
+  snip: "SNIP: trascina un rettangolo sul valore → cella selezionata, poi a destra. CTRL = aggiungi alla cella precedente.",
+  sum: "SUM SNIP: seleziona i numeri uno alla volta, poi «Scrivi somma in cella».",
+  val: "VALIDATION: trascina sull'area verificata → cella verde con ✓.",
+  exc: "EXCEPTION: trascina sull'area con anomalia → cella rossa con ✗."
 };
 function setMode(m) {
   state.mode = m;
   ["snip", "sum", "val", "exc"].forEach(k => $("mode-" + k).classList.toggle("active", k === m));
+  $("modestrip").className = "modestrip " + m;
+  $("modehelp").textContent = MODE_HELP[m];
   $("sumpanel").hidden = m !== "sum";
   setStatus(MODE_HELP[m]);
 }
@@ -518,7 +603,7 @@ async function importItems(items) {
     refreshAll();
     const big = ok.some(i => i.file.size > WARN_MB * 1048576);
     if (added.length === 1 && state.ui.currentFolder === added[0].folder) { /* resta dov'è */ }
-    if (last && (added.length === 1 || (!added.length && dup === 1))) { showTab("snip"); await openDoc(last); }
+    if (last && !$("view-snip").hidden && (added.length === 1 || (!added.length && dup === 1))) await openDoc(last);
     const scans = added.filter(d => pagesMissing(d).length).length;
     setStatus(`Importati ${added.length} documento/i` + (dup ? `, ${dup} già presente/i` : "") + (skipped ? `, ${skipped} ignorato/i (formato non valido)` : "") +
       (scans ? `. ${scans} sembra/no scansione/i: ti propongo l'OCR.` : ".") + " Ricorda di salvare il file Excel." +
@@ -581,16 +666,9 @@ async function walkEntry(entry, folder, out, top) {
 //  Schermata ORGANIZZA (cartelle, sottocartelle, spostamenti)
 // =====================================================================
 function renderDocSelect() {
-  const sel = $("docselect");
-  sel.innerHTML = "";
-  if (!state.index.docs.length) {
-    sel.appendChild(new Option("(nessun documento)", ""));
-    return;
-  }
-  // elenco ordinato per cartella e nome
-  [...state.index.docs].sort((a, b) => (a.folder + "/" + a.name).localeCompare(b.folder + "/" + b.name, "it"))
-    .forEach(d => sel.appendChild(new Option((d.folder ? d.folder + " / " : "") + d.name, d.id)));
-  if (state.docId) sel.value = state.docId;
+  updateDocBtn();
+  if (!$("pop-docs").hidden) renderDocList();
+  if (!$("pop-folders").hidden) renderFolderList();
 }
 
 function snipCount(docId) {
@@ -832,8 +910,9 @@ function closeDoc() {
   canvas.style.width = canvas.style.height = "0px";
   $("stage").style.display = "none";
   $("empty").style.display = "";
-  $("pageinfo").textContent = "–";
+  updatePageUI();
   updateOcrInfo();
+  updateDocBtn();
   drawMarks();
 }
 
@@ -864,7 +943,7 @@ async function openDoc(id, opts) {
     state.page = Math.min(Math.max(1, opts.page || 1), state.numPages);
     state.sumItems = []; renderSum();
     state.zoom = 1;
-    $("docselect").value = id;
+    updateDocBtn();
     $("stage").style.display = "";
     $("empty").style.display = "none";
     state.pendingScroll = true;
@@ -911,7 +990,7 @@ async function renderPage() {
     const it = effItems(d.id, state.page);
     state.pageItems = it ? it.map(i => ({ str: i.s, x: i.u1 * state.viewW, y: i.v2 * state.viewH, w: (i.u2 - i.u1) * state.viewW, h: (i.v2 - i.v1) * state.viewH })) : [];
   }
-  $("pageinfo").textContent = state.docId ? `${state.page} / ${state.numPages}` : "–";
+  updatePageUI();
   drawMarks();
   if (state.pendingScroll) { state.pendingScroll = false; scrollToMark(); }
 }
