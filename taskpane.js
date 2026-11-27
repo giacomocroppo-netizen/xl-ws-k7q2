@@ -140,6 +140,7 @@ function initUI() {
   $("ocrcur").addEventListener("click", () => { const d = curDoc(); if (!d) return setStatus("Apri prima un documento.", "err"); closePops(); runOcr(d, pagesMissing(d).length ? "missing" : "all", state.page); });
   $("dlorig").addEventListener("click", () => { const d = curDoc(); if (d) downloadOriginal(d); });
   $("dlann").addEventListener("click", () => { const d = curDoc(); if (d) downloadAnnotated(d); });
+  $("openset").addEventListener("click", () => showTab("set"));
   $("snipdel").addEventListener("click", () => deleteOnSelection());
   ["lfilter", "ltype", "ldoc"].forEach(i => $(i).addEventListener("input", renderList));
   $("zoomin").addEventListener("click", () => zoom(1.2));
