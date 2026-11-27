@@ -209,6 +209,7 @@ function showTab(t) {
   if (t === "set") setOrgTab("tools");
   if (t === "org") renderOrg();
   if (t === "snip" && state.docId) scheduleRender();
+  if (t === "snip") ensureDocOpen();
 }
 
 function setOrgTab(k) {
@@ -300,6 +301,14 @@ function refreshAll() {
   renderOrg();
   updateOcrBanner();
   updateOcrInfo();
+  ensureDocOpen();
+}
+
+// Se nel file c'è almeno un documento, il visualizzatore ne mostra sempre uno (niente banner di importazione).
+function ensureDocOpen() {
+  if (state.docId || state.opening || state.busy || !state.index.docs.length || $("view-snip").hidden) return;
+  const d = (state.lastDocId && docById(state.lastDocId)) || state.index.docs[0];
+  if (d) openDoc(d.id);
 }
 
 // =====================================================================
@@ -628,6 +637,7 @@ async function importItems(items) {
     refreshAll();
   } finally {
     state.busy = false;
+    ensureDocOpen();
   }
 }
 
@@ -926,6 +936,7 @@ async function removeDoc(d, silent) {
     setStatus("Errore: " + (e.message || e), "err");
   } finally {
     state.busy = prev;
+    ensureDocOpen();
   }
 }
 
@@ -983,6 +994,7 @@ async function openDoc(id, opts) {
   opts = opts || {};
   const d = docById(id);
   if (!d) return;
+  state.opening = true;
   try {
     setStatus(`Apro «${d.name}»…`);
     const bytes = await loadBytes(d);
@@ -1003,6 +1015,7 @@ async function openDoc(id, opts) {
     }
     await loadOcr(d);
     state.docId = id;
+    state.lastDocId = id;
     state.page = Math.min(Math.max(1, opts.page || 1), state.numPages);
     state.sumItems = []; renderSum();
     state.zoom = 1;
@@ -1017,6 +1030,8 @@ async function openDoc(id, opts) {
   } catch (e) {
     console.error(e);
     setStatus("Impossibile aprire il documento: " + (e.message || e), "err");
+  } finally {
+    state.opening = false;
   }
 }
 
@@ -1124,12 +1139,22 @@ function drawMarks() {
     });
     if (label) el.append(h("b", { text: label }));
     overlay.append(el);
+    return el;
   };
   const focusing = state.focusId != null;
+  let xDone = false;
   state.log.filter(r => r.docId === state.docId && r.page === state.page).forEach(r => {
     const isF = r.id === state.focusId;
     const tc = r.type === "SUM SNIP" ? "sum " : r.type === "VALIDATION" ? "val " : r.type === "EXCEPTION" ? "exc " : "";
-    add(r, tc + (isF ? "focus" : (focusing ? "dim" : "")), "#" + r.id);
+    const el = add(r, tc + (isF ? "focus" : (focusing ? "dim" : "")), "#" + r.id);
+    if (isF && !xDone) {
+      // X per eliminare lo snip evidenziato (come il tasto Delete Snip)
+      xDone = true;
+      const x = h("button", { class: "markx", title: "Elimina questo snip (definitivo, come Delete Snip)", text: "✕" });
+      x.addEventListener("mousedown", ev => ev.stopPropagation());
+      x.addEventListener("click", ev => { ev.stopPropagation(); ev.preventDefault(); deleteSnipIds([r.id]); });
+      el.append(x);
+    }
   });
   state.sumItems.filter(s => s.page === state.page).forEach(s => add(s, "pending", "+"));
   state.searchMarks.filter(m => m.docId === state.docId && m.page === state.page).forEach(m => add(m, "search", ""));
