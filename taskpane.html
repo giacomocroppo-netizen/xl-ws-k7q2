@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=3" />
+  <link rel="stylesheet" href="taskpane.css?v=4" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
@@ -54,6 +54,7 @@
       <button id="next" title="Pagina successiva">▶</button>
       <button id="zoomout" title="Riduci">−</button>
       <button id="zoomin" title="Ingrandisci">+</button>
+      <button id="snipprev" title="Snip precedente della cella" hidden>◀</button><span id="snipnav" class="muted" hidden></span><button id="snipnext" title="Snip successivo della cella" hidden>▶</button>
       <button id="findsnip" title="Mostra nel documento lo snip della cella selezionata">🎯 Vai allo snip</button>
     </div>
 
@@ -64,21 +65,6 @@
           <option value="en">Inglese (1,234.56)</option>
         </select>
       </label>
-      <label><input type="checkbox" id="movedown" /> vai alla cella sotto</label>
-      <label><input type="checkbox" id="asnumber" checked /> converti in numero</label>
-      <label title="Quando clicchi una cella con uno snip, apre il pannello e lo mostra"><input type="checkbox" id="autoopen" checked /> apri lo snip cliccando la cella</label>
-    </div>
-
-    <div class="bar small">
-      <label>OCR:
-        <select id="ocrscope">
-          <option value="current">pagina corrente</option>
-          <option value="missing">pagine senza testo</option>
-          <option value="all">tutto il documento</option>
-        </select>
-      </label>
-      <button id="ocrgo" title="Legge il testo delle pagine con l'OCR (anche per ricerca e snip)">🔎 Avvia OCR</button>
-      <span id="ocrinfo" class="muted"></span>
     </div>
 
     <div id="sumpanel" class="panel" hidden>
@@ -103,6 +89,34 @@
 
   <!-- ===== SCHERMATA ORGANIZZA ===== -->
   <section id="view-org" hidden>
+    <details class="panel" open>
+      <summary><strong>⚙️ Impostazioni</strong></summary>
+      <div class="opts">
+        <label><input type="checkbox" id="asnumber" checked /> converti in numero (importi utilizzabili nei calcoli)</label>
+        <label><input type="checkbox" id="autoopen" checked /> apri lo snip cliccando la cella</label>
+      </div>
+    </details>
+    <details class="panel">
+      <summary><strong>🔎 OCR su tutti i documenti</strong></summary>
+      <div class="opts">
+        <select id="ocrallscope">
+          <option value="missing">solo pagine senza testo (consigliato)</option>
+          <option value="all">tutte le pagine di tutti i documenti</option>
+        </select>
+        <button id="ocrall" class="btn primary">Avvia OCR su tutti</button>
+      </div>
+    </details>
+    <details class="panel">
+      <summary><strong>🗜 Comprimi documenti</strong></summary>
+      <div class="opts">
+        <select id="cmplevel">
+          <option value="light">Leggera (mantiene tutto, risparmio piccolo)</option>
+          <option value="strong">Forte (immagini JPG, testo conservato, risparmio grande)</option>
+        </select>
+        <button id="cmpall" class="btn primary">Comprimi tutti</button>
+        <div class="muted">Con «Forte» il documento diventa un'immagine per pagina: il testo già letto resta cercabile e gli snip restano al loro posto, ma l'originale viene sostituito. Si sostituisce solo se il file diventa più piccolo.</div>
+      </div>
+    </details>
     <div class="bar">
       <input id="docfilter" type="search" placeholder="Filtra per nome documento…" />
     </div>
@@ -129,10 +143,10 @@
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js?v=3"></script>
-  <script src="folder-lib.js?v=3"></script>
-  <script src="text-lib.js?v=3"></script>
-  <script src="export-lib.js?v=3"></script>
-  <script src="taskpane.js?v=3"></script>
+  <script src="snip-lib.js?v=4"></script>
+  <script src="folder-lib.js?v=4"></script>
+  <script src="text-lib.js?v=4"></script>
+  <script src="export-lib.js?v=4"></script>
+  <script src="taskpane.js?v=4"></script>
 </body>
 </html>

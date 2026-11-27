@@ -17,7 +17,7 @@ const state = {
   docId: null,
   pdf: null, image: null,
   page: 1, numPages: 1,
-  scale: 1.6, dpr: 1,
+  scale: 1.6, zoom: 1, dpr: 1, nav: null, lastCell: null, lastNext: null,
   viewW: 0, viewH: 0,
   pageItems: [],            // testo della pagina aperta, in pixel dello schermo
   sumItems: [],
@@ -120,7 +120,11 @@ function initUI() {
   $("resultsclose").addEventListener("click", closeResults);
   $("ocrrun").addEventListener("click", runBannerOcr);
   $("ocrlater").addEventListener("click", () => { docsNeedingOcr().forEach(d => state.ocrDismissed.add(d.id)); updateOcrBanner(); });
-  $("ocrgo").addEventListener("click", () => { const d = curDoc(); if (d) runOcr(d, $("ocrscope").value, state.page); else setStatus("Apri prima un documento.", "err"); });
+  $("ocrall").addEventListener("click", runOcrAll);
+  $("cmpall").addEventListener("click", () => compressDocs(state.index.docs.slice(), $("cmplevel").value));
+  $("snipprev").addEventListener("click", () => stepNav(-1));
+  $("snipnext").addEventListener("click", () => stepNav(1));
+  setupZoomInput();
   $("selmovego").addEventListener("click", () => { FolderLib.moveDocs(state.index, [...state.ui.selected], $("selmove").value); state.ui.selected.clear(); saveIndex(); renderOrg(); });
   $("selclear").addEventListener("click", () => { state.ui.selected.clear(); renderOrg(); });
   armConfirm($("seldelete"), "🗑 Elimina", async () => { const ids = [...state.ui.selected]; for (const id of ids) { const d = docById(id); if (d) await removeDoc(d, true); } state.ui.selected.clear(); refreshAll(); });
@@ -149,6 +153,7 @@ function showTab(t) {
   $("view-org").hidden = t !== "org";
   $("tab-snip").classList.toggle("active", t === "snip");
   $("tab-org").classList.toggle("active", t === "org");
+  if (t === "snip" && state.docId) scheduleRender();
 }
 
 function setMode(m) {
@@ -157,7 +162,7 @@ function setMode(m) {
   $("mode-sum").classList.toggle("active", m === "sum");
   $("sumpanel").hidden = m !== "sum";
   setStatus(m === "snip"
-    ? "SNIP: trascina un rettangolo sul valore; finisce nella cella selezionata."
+    ? "SNIP: trascina un rettangolo sul valore (finisce nella cella selezionata, poi si passa a quella a destra). Tieni premuto CTRL per aggiungere il testo alla cella precedente."
     : "SUM SNIP: seleziona i numeri uno alla volta, poi premi «Scrivi somma in cella».");
 }
 
@@ -367,9 +372,7 @@ async function runBannerOcr() {
 
 function updateOcrInfo() {
   const d = curDoc();
-  if (!d) { $("ocrinfo").textContent = ""; return; }
-  const done = d.ocr && d.ocr.pages ? d.ocr.pages.length : 0;
-  $("ocrinfo").textContent = done ? `OCR fatto su ${done} pag.` : "";
+  return d;
 }
 
 function pagesForScope(doc, scope, cur) {
@@ -720,6 +723,7 @@ function docCard(d, showPath) {
   mk("Apri", () => { showTab("snip"); openDoc(d.id); });
   mk("⬇ Originale", () => downloadOriginal(d));
   mk(`⬇ Con spunte${n ? " (" + n + ")" : ""}`, () => downloadAnnotated(d));
+  mk("🗜 Comprimi", () => compressDocs([d], $("cmplevel").value));
   mk("🔎 OCR", () => runOcr(d, miss ? "missing" : "all", 1));
   const del = h("button", { text: "🗑 Elimina", class: "danger" });
   armConfirm(del, "🗑 Elimina", () => removeDoc(d));
@@ -829,6 +833,7 @@ async function openDoc(id, opts) {
     state.docId = id;
     state.page = Math.min(Math.max(1, opts.page || 1), state.numPages);
     state.sumItems = []; renderSum();
+    state.zoom = 1;
     $("docselect").value = id;
     $("stage").style.display = "";
     $("empty").style.display = "none";
@@ -851,6 +856,8 @@ async function renderPage() {
 
   if (state.pdf) {
     const page = await state.pdf.getPage(state.page);
+    const v1 = page.getViewport({ scale: 1 });
+    state.scale = fitWidth() / v1.width * state.zoom;
     const viewport = page.getViewport({ scale: state.scale });
     state.viewW = viewport.width; state.viewH = viewport.height;
     canvas.width = Math.floor(viewport.width * dpr);
@@ -860,7 +867,7 @@ async function renderPage() {
     await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: state.scale * dpr }) }).promise;
     await nativeItems(d.id, state.pdf, state.page);
   } else if (state.image) {
-    const base = Math.min(state.image.naturalWidth, 700) * state.scale / 1.6;
+    const base = fitWidth() * state.zoom;
     const w = Math.round(base);
     const hh = Math.round(base * state.image.naturalHeight / state.image.naturalWidth);
     state.viewW = w; state.viewH = hh;
@@ -885,9 +892,38 @@ async function gotoPage(n) {
   await renderPage();
 }
 
-async function zoom(f) {
-  state.scale = Math.min(4, Math.max(0.6, state.scale * f));
-  if (state.docId) await renderPage();
+const fitWidth = () => Math.max(120, $("viewer").clientWidth - 16);
+
+let rendering = false, again = false;
+async function scheduleRender() {
+  if (!state.docId) return;
+  if (rendering) { again = true; return; }
+  rendering = true;
+  try { await renderPage(); } catch (e) { console.warn(e); }
+  rendering = false;
+  if (again) { again = false; scheduleRender(); }
+}
+
+function zoom(f) {
+  state.zoom = Math.min(4, Math.max(0.4, state.zoom * f));
+  scheduleRender();
+}
+
+// zoom con CTRL+rotellina (o CTRL +/−) solo sul documento, non sul pannello
+function setupZoomInput() {
+  window.addEventListener("wheel", e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    if ($("viewer").contains(e.target)) zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  }, { passive: false });
+  window.addEventListener("keydown", e => {
+    if (!e.ctrlKey) return;
+    if (e.key === "+" || e.key === "=") { e.preventDefault(); zoom(1.2); }
+    else if (e.key === "-") { e.preventDefault(); zoom(1 / 1.2); }
+    else if (e.key === "0") { e.preventDefault(); state.zoom = 1; scheduleRender(); }
+  });
+  let t = null;
+  window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(scheduleRender, 200); });
 }
 
 function drawMarks() {
@@ -948,12 +984,13 @@ function setupSelection() {
   window.addEventListener("mouseup", async e => {
     if (!start) return;
     const p = pos(e);
+    const withCtrl = e.ctrlKey;
     const f = { u1: Math.min(start.x, p.x) / p.w, v1: Math.min(start.y, p.y) / p.h, u2: Math.max(start.x, p.x) / p.w, v2: Math.max(start.y, p.y) / p.h };
     const tiny = (f.u2 - f.u1) * p.w < 4 || (f.v2 - f.v1) * p.h < 4;
     start = null;
     if (box) { box.remove(); box = null; }
     if (tiny) return;
-    await onSnip(f);
+    await onSnip(f, withCtrl);
   });
 }
 
@@ -989,7 +1026,7 @@ async function ocrArea(f) {
 // =====================================================================
 //  SNIP / SUM SNIP
 // =====================================================================
-async function onSnip(f) {
+async function onSnip(f, withCtrl) {
   if (state.busy) return;
   state.busy = true;
   try {
@@ -1011,13 +1048,25 @@ async function onSnip(f) {
       const n = SnipLib.parseNumber(text, fmt);
       if (n !== null) { value = n; isNum = true; }
     }
-    const addr = await writeToCell(value, "#C6EFCE");
+    let addr, appended = false;
+    if (withCtrl) {
+      const sel = await currentCellAddress();
+      const target = state.lastCell && state.lastNext === sel ? state.lastCell : sel;
+      const r = await appendToCell(target, text, "#C6EFCE");
+      addr = target; appended = r;
+    } else {
+      addr = await writeToCell(value, "#C6EFCE");
+    }
     const id = nextSnipId();
     await addLog([{ id, cell: addr, type: "SNIP", page: state.page, ...f, text, value }]);
     state.focusId = null; state.searchMarks = [];
     drawMarks();
-    setStatus(`#${id}: scritto ${isNum ? value : "«" + text + "»"} in ${addr} (${source}).`, "ok");
-    if ($("movedown").checked) await moveDown();
+    if (withCtrl) setStatus(`#${id}: «${text}» aggiunto alla cella ${addr}${appended ? " (separato da « - »)" : ""} (${source}).`, "ok");
+    else {
+      state.lastCell = addr;
+      state.lastNext = await moveRight();
+      setStatus(`#${id}: scritto ${isNum ? value : "«" + text + "»"} in ${addr} (${source}). Prossimo snip in ${state.lastNext}.`, "ok");
+    }
   } catch (e) {
     console.error(e);
     setStatus("Errore: " + (e.message || e), "err");
@@ -1052,8 +1101,9 @@ async function writeSum() {
     })));
     state.sumItems = [];
     renderSum(); drawMarks();
-    setStatus(`#${id}: somma scritta in ${addr}: ${formula}`, "ok");
-    if ($("movedown").checked) await moveDown();
+    state.lastCell = addr;
+    state.lastNext = await moveRight();
+    setStatus(`#${id}: somma scritta in ${addr}: ${formula}. Prossimo in ${state.lastNext}.`, "ok");
   } catch (e) {
     console.error(e);
     setStatus("Errore: " + (e.message || e), "err");
@@ -1092,21 +1142,43 @@ async function currentCellAddress() {
 async function handleSelection() {
   if (state.busy || !$("autoopen").checked || !state.log.length) return;
   const addr = await currentCellAddress();
-  const rows = state.log.filter(r => r.cell === addr);
-  if (!rows.length) {
+  const ids = [...new Set(state.log.filter(r => r.cell === addr).map(r => r.id))];
+  if (!ids.length) {
+    state.nav = null; updateNav();
     if (state.focusId != null) { state.focusId = null; drawMarks(); }
     return;
   }
+  if (state.nav && state.nav.addr === addr && state.focusId != null) return;   // già mostrato
   try { if (Office.addin && Office.addin.showAsTaskpane) await Office.addin.showAsTaskpane(); } catch (e) { /* già aperto */ }
-  await focusSnip(rows[0], addr);
+  await focusCell(addr, ids, 0);
 }
 
-async function focusSnip(row, addr) {
+async function focusCell(addr, ids, idx) {
+  state.nav = { addr, ids, idx };
+  updateNav();
+  const row = state.log.find(r => r.id === ids[idx]);
+  if (row) await focusSnip(row, addr, ids.length > 1 ? ` (${idx + 1}/${ids.length})` : "");
+}
+
+function updateNav() {
+  const n = state.nav && state.nav.ids.length > 1 ? state.nav : null;
+  ["snipprev", "snipnav", "snipnext"].forEach(i => { $(i).hidden = !n; });
+  if (n) $("snipnav").textContent = `${n.idx + 1}/${n.ids.length}`;
+}
+
+async function stepNav(d) {
+  const n = state.nav;
+  if (!n) return;
+  const idx = (n.idx + d + n.ids.length) % n.ids.length;
+  await focusCell(n.addr, n.ids, idx);
+}
+
+async function focusSnip(row, addr, extra) {
   if (!docById(row.docId)) { setStatus("Il documento di questo snip non è più nel file.", "err"); return; }
   showTab("snip");
   state.focusId = row.id;
   state.searchMarks = [];
-  const msg = `Snip #${row.id} · ${addr || row.cell} · «${row.text}» · pagina ${row.page}`;
+  const msg = `Snip #${row.id}${extra || ""} · ${addr || row.cell} · «${row.text}» · pagina ${row.page}`;
   if (state.docId !== row.docId) {
     await openDoc(row.docId, { page: row.page, message: msg });
   } else {
@@ -1120,9 +1192,9 @@ async function focusSnip(row, addr) {
 async function findSnipFromCell() {
   try {
     const addr = await currentCellAddress();
-    const rows = state.log.filter(r => r.cell === addr);
-    if (!rows.length) { setStatus(`Nessuno snip sulla cella ${addr}.`, "err"); return; }
-    await focusSnip(rows[0], addr);
+    const ids = [...new Set(state.log.filter(r => r.cell === addr).map(r => r.id))];
+    if (!ids.length) { setStatus(`Nessuno snip sulla cella ${addr}.`, "err"); return; }
+    await focusCell(addr, ids, 0);
   } catch (e) {
     console.error(e);
     setStatus("Errore: " + (e.message || e), "err");
@@ -1219,10 +1291,34 @@ async function writeToCell(value, color, isFormula) {
   });
 }
 
-async function moveDown() {
+async function moveRight() {
   return Excel.run(async ctx => {
-    ctx.workbook.getSelectedRange().getCell(0, 0).getOffsetRange(1, 0).select();
+    const next = ctx.workbook.getSelectedRange().getCell(0, 0).getOffsetRange(0, 1);
+    next.select();
+    next.load("address");
     await ctx.sync();
+    return next.address;
+  });
+}
+
+function rangeByAddress(ctx, addr) {
+  const i = addr.lastIndexOf("!");
+  if (i < 0) return ctx.workbook.worksheets.getActiveWorksheet().getRange(addr);
+  const sheet = addr.slice(0, i).replace(/^'(.*)'$/, "$1").replace(/''/g, "'");
+  return ctx.workbook.worksheets.getItem(sheet).getRange(addr.slice(i + 1));
+}
+
+// aggiunge il testo al contenuto della cella, separato da " - ". Restituisce true se c'era già qualcosa.
+async function appendToCell(addr, text, color) {
+  return Excel.run(async ctx => {
+    const c = rangeByAddress(ctx, addr);
+    c.load("text");
+    await ctx.sync();
+    const old = String((c.text && c.text[0] && c.text[0][0]) || "");
+    c.values = [[old ? old + " - " + text : text]];
+    c.format.fill.color = color;
+    await ctx.sync();
+    return !!old;
   });
 }
 
@@ -1299,4 +1395,103 @@ async function rewriteLog() {
     }
     await ctx.sync();
   });
+}
+
+// =====================================================================
+//  OCR su tutti i documenti
+// =====================================================================
+async function runOcrAll() {
+  const scope = $("ocrallscope").value;
+  const list = state.index.docs.filter(d => scope === "all" || pagesMissing(d).length);
+  if (!list.length) { setStatus("Nessun documento ha pagine senza testo da leggere.", "ok"); return; }
+  for (let i = 0; i < list.length; i++) {
+    setStatus(`OCR documento ${i + 1} di ${list.length}: «${list[i].name}»…`);
+    await runOcr(list[i], scope, 1);
+  }
+  setStatus(`OCR eseguito su ${list.length} documento/i.`, "ok");
+}
+
+// =====================================================================
+//  Compressione
+// =====================================================================
+const jpegBlob = (cv, q) => new Promise(res => cv.toBlob(res, "image/jpeg", q));
+
+async function compressOne(doc, level) {
+  const before = doc.size;
+  const bytes = await loadBytes(doc);
+  let out = null, mime = doc.mime, newName = doc.name;
+  if (doc.type === "pdf" && level === "light") {
+    const p = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+    out = await p.save({ useObjectStreams: true });
+  } else if (doc.type === "pdf") {
+    await ensureDocText(doc, "Leggo il testo prima di comprimere…");
+    const pdf = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
+    const dst = await PDFLib.PDFDocument.create();
+    for (let n = 1; n <= pdf.numPages; n++) {
+      setStatus(`Comprimo «${doc.name}»: pagina ${n} di ${pdf.numPages}…`);
+      const page = await pdf.getPage(n);
+      const v1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: Math.min(2.5, 1600 / v1.width) });
+      const cv = document.createElement("canvas");
+      cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+      const cx = cv.getContext("2d");
+      cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
+      await page.render({ canvasContext: cx, viewport: vp }).promise;
+      const jb = new Uint8Array(await (await jpegBlob(cv, 0.72)).arrayBuffer());
+      cv.width = cv.height = 0;
+      const img = await dst.embedJpg(jb);
+      dst.addPage([v1.width, v1.height]).drawImage(img, { x: 0, y: 0, width: v1.width, height: v1.height });
+    }
+    pdf.destroy();
+    out = await dst.save({ useObjectStreams: true });
+  } else if (level === "strong") {
+    const img = await blobToImage(bytes, doc.mime);
+    const k = Math.min(1, 2000 / img.naturalWidth);
+    const cv = document.createElement("canvas");
+    cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+    const cx = cv.getContext("2d");
+    cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height);
+    cx.drawImage(img, 0, 0, cv.width, cv.height);
+    out = new Uint8Array(await (await jpegBlob(cv, 0.75)).arrayBuffer());
+    mime = "image/jpeg";
+    newName = doc.name.replace(/\.[^.]+$/, "") + ".jpg";
+  }
+  if (!out || out.length >= before * (level === "strong" ? 0.9 : 0.97)) return { before, after: before, replaced: false };
+
+  if (doc.type === "pdf" && level === "strong") {
+    // il testo del PDF originale diventa il "testo letto" del documento, così ricerca e snip continuano a funzionare
+    const o = await loadOcr(doc);
+    Object.entries(state.native[doc.id] || {}).forEach(([n, it]) => { if (it.length && !(o[n] && o[n].length)) o[n] = it; });
+    await saveOcr(doc);
+  }
+  const old = doc.parts;
+  doc.parts = await storeBytes(out);
+  doc.size = out.length; doc.mime = mime; doc.name = newName;
+  await saveIndex();
+  await deleteParts(old).catch(() => {});
+  delete state.native[doc.id];
+  return { before, after: out.length, replaced: true };
+}
+
+async function compressDocs(list, level) {
+  if (!list.length) { setStatus("Nessun documento da comprimere.", "err"); return; }
+  if (state.busy) { setStatus("Attendi la fine dell'operazione in corso.", "err"); return; }
+  state.busy = true;
+  let b = 0, a = 0, n = 0;
+  try {
+    for (const d of list) {
+      const r = await compressOne(d, level);
+      b += r.before; a += r.after; if (r.replaced) n++;
+    }
+    const reopen = state.docId && list.some(d => d.id === state.docId) ? state.docId : null;
+    state.busy = false;
+    refreshAll();
+    if (reopen) { const pg = state.page; await openDoc(reopen, { page: pg }); }
+    setStatus(n ? `Compressi ${n} documento/i: da ${fmtSize(b)} a ${fmtSize(a)} (risparmio ${fmtSize(b - a)}). Salva il file Excel per rendere effettivo il risparmio.` : "Niente da comprimere: i documenti sono già leggeri.", "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("Compressione non riuscita: " + (e.message || e), "err");
+  } finally {
+    state.busy = false;
+  }
 }
