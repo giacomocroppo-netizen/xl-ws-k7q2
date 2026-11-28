@@ -99,7 +99,7 @@ button.danger.armed { background: #b00020; color: #fff; border-color: #b00020; }
 
 .opts { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
 details.panel summary { cursor: pointer; }
-#viewer { touch-action: pan-x pan-y; }
+#viewer { touch-action: pan-x pan-y; overscroll-behavior-x: none; }
 #snipnav { margin: 0 4px; }
 
 .llist { list-style: none; margin: 0; padding: 0; }

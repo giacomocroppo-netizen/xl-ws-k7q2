@@ -1172,6 +1172,12 @@ function setupZoomInput() {
   window.addEventListener("wheel", e => {
     if (!e.ctrlKey) {
       const v = $("viewer");
+      // con la rotellina/touchpad ci si muove solo in alto e in basso; a destra e sinistra solo con le barre
+      if (v.contains(e.target) && (e.deltaX !== 0 || e.shiftKey)) {
+        e.preventDefault();
+        if (!e.shiftKey && e.deltaY) v.scrollTop += e.deltaY;
+        return;
+      }
       if (!state.docId || !v.contains(e.target) || Math.abs(e.deltaY) < 4) return;
       const now = Date.now();
       if (now - lastFlip < 600) return;
@@ -1295,9 +1301,29 @@ function setupSelection() {
     const withCtrl = e.ctrlKey;
     const f = { u1: Math.min(start.x, p.x) / p.w, v1: Math.min(start.y, p.y) / p.h, u2: Math.max(start.x, p.x) / p.w, v2: Math.max(start.y, p.y) / p.h };
     const tiny = (f.u2 - f.u1) * p.w < 4 || (f.v2 - f.v1) * p.h < 4;
+    const down = start;
     start = null;
     if (box) { box.remove(); box = null; }
-    if (tiny) return;
+    if (tiny) {
+      // clic (senza trascinare) su un riquadro già fatto: Excel va alla sua cella
+      let hit = null, area = Infinity;
+      state.log.forEach(m => {
+        if (m.docId !== state.docId || m.page !== state.page) return;
+        const x1 = Math.min(m.u1, m.u2) * p.w, x2 = Math.max(m.u1, m.u2) * p.w, y1 = Math.min(m.v1, m.v2) * p.h, y2 = Math.max(m.v1, m.v2) * p.h;
+        if (down.x < x1 || down.x > x2 || down.y < y1 || down.y > y2) return;
+        const a = (x2 - x1) * (y2 - y1);
+        if (a < area) { area = a; hit = m; }
+      });
+      if (hit && hit.cell) {
+        try {
+          await selectCell(hit.cell);
+          state.focusId = hit.id; state.searchMarks = [];
+          drawMarks();
+          setStatus(`Snip #${hit.id} · cella ${hit.cell}`, "ok");
+        } catch (err) { setStatus("Errore: " + (err.message || err), "err"); }
+      }
+      return;
+    }
     await onSnip(f, withCtrl);
   });
 }
