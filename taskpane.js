@@ -1178,11 +1178,15 @@ function setupZoomInput() {
         if (!e.shiftKey && e.deltaY) v.scrollTop += e.deltaY;
         return;
       }
-      if (!state.docId || !v.contains(e.target) || Math.abs(e.deltaY) < 4) return;
-      const now = Date.now();
-      if (now - lastFlip < 600) return;
+      if (!state.docId || !v.contains(e.target) || Math.abs(e.deltaY) < 1) return;
       const atBottom = v.scrollTop + v.clientHeight >= v.scrollHeight - 3;
       const atTop = v.scrollTop <= 0;
+      // scorrimento verticale più lento (circa un terzo del normale)
+      e.preventDefault();
+      v.scrollTop += e.deltaY * (e.deltaMode === 1 ? 16 : 1) * 0.3;
+      if (Math.abs(e.deltaY) < 4) return;
+      const now = Date.now();
+      if (now - lastFlip < 600) return;
       if (e.deltaY > 0 && atBottom && state.page < state.numPages) { lastFlip = now; gotoPage(state.page + 1, "top"); }
       else if (e.deltaY < 0 && atTop && state.page > 1) { lastFlip = now; gotoPage(state.page - 1, "bottom"); }
       return;
