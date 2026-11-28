@@ -41,10 +41,15 @@ const docById = id => state.index.docs.find(d => d.id === id);
 const curDoc = () => docById(state.docId);
 const fmtSize = b => b >= 1048576 ? (b / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
 
+let statusTimer = null;
 function setStatus(msg, kind) {
   const el = $("status");
   el.textContent = msg;
   el.className = "status" + (kind ? " " + kind : "");
+  clearTimeout(statusTimer);
+  // errori e avvertenze restano; gli altri messaggi spariscono dopo qualche secondo per lasciare spazio al documento
+  if (kind === "err" || /ATTENZIONE|Ignorat/.test(msg || "")) { el.classList.add("keep"); return; }
+  statusTimer = setTimeout(() => { el.textContent = ""; }, 5000);
 }
 
 function h(tag, props, ...kids) {
@@ -1352,6 +1357,12 @@ async function readArea(f) {
   if (r.ink < 0.003) return { text: "", source: "", layer: "" };                          // area vuota
   if (!r.text) return { text: layer, source: layerSrc, layer };
   if (!layer) return { text: r.text, source: "OCR sull'area", layer };
+  // l'OCR a volte perde la virgola/il punto dei numeri (306,53 -> 306 53): se il testo del PDF ha il numero intero, si ripristina
+  (layer.match(/\d+(?:[.,]\d+)+/g) || []).forEach(tok => {
+    if (r.text.includes(tok)) return;
+    const re = new RegExp("(?<!\\d)" + tok.split(/[.,]/).join("\\s+") + "(?!\\d)");
+    if (re.test(r.text)) r.text = r.text.replace(re, tok);
+  });
   const norm = x => x.replace(/\s+/g, "").toLowerCase();
   return norm(layer) === norm(r.text)
     ? { text: layer, source: layerSrc + ", verificato con OCR", layer }

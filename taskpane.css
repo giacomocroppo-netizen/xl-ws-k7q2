@@ -212,3 +212,9 @@ label.tbtn { cursor: pointer; display: inline-block; }
 .hoverx { position: absolute; }
 .hoverx { width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 1px solid #fff; background: #d62828; color: #fff; font-size: 11px; line-height: 1; cursor: pointer; z-index: 6; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 .hoverx:hover { background: #a4001a; }
+
+/* margini ridotti e barra di stato nascosta quando è vuota */
+#viewer { padding: 0 !important; }
+.toolbar { padding: 3px 4px !important; gap: 4px !important; }
+.status:empty { display: none; }
+.status { padding: 2px 6px; min-height: 0 !important; }
