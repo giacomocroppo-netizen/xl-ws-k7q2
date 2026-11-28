@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=26" />
+  <link rel="stylesheet" href="taskpane.css?v=27" />
 </head>
 <body>
   <input id="import" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden />
@@ -170,6 +170,13 @@
         </div>
       </details>
       <details class="panel" open>
+        <summary><strong>📦 Esporta tutto</strong></summary>
+        <div class="opts">
+          <div class="meta">Scarica uno zip con i documenti originali, i documenti con gli snip e la tabella degli snip.</div>
+          <button id="exportall" class="btn primary">Esporta tutto</button>
+        </div>
+      </details>
+      <details class="panel" open>
         <summary><strong>🔎 OCR su tutti i documenti</strong></summary>
         <div class="opts">
           <select id="ocrallscope">
@@ -195,10 +202,11 @@
 
   <div id="status" class="status">Pronto.</div>
 
-  <script src="snip-lib.js?v=26"></script>
-  <script src="folder-lib.js?v=26"></script>
-  <script src="text-lib.js?v=26"></script>
-  <script src="export-lib.js?v=26"></script>
-  <script src="taskpane.js?v=26"></script>
+  <script src="snip-lib.js?v=27"></script>
+  <script src="folder-lib.js?v=27"></script>
+  <script src="text-lib.js?v=27"></script>
+  <script src="export-lib.js?v=27"></script>
+  <script src="zip-lib.js?v=27"></script>
+  <script src="taskpane.js?v=27"></script>
 </body>
 </html>

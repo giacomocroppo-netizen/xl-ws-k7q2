@@ -81,6 +81,7 @@ Office.onReady(async info => {
     Office.actions.associate("setModeVal", ribbon(async () => { showTab("snip"); setMode("val"); await showPane(); }));
     Office.actions.associate("setModeExc", ribbon(async () => { showTab("snip"); setMode("exc"); await showPane(); }));
     Office.actions.associate("openOrganizer", ribbon(async () => { showTab("org"); setOrgTab("docs"); await showPane(); }));
+    Office.actions.associate("exportAll", ribbon(async () => { showTab("set"); await showPane(); await exportAll(); }));
     Office.actions.associate("openSettings", ribbon(async () => { showTab("set"); await showPane(); }));
     Office.actions.associate("importDocs", ribbon(async () => { showTab("org"); setOrgTab("docs"); await showPane(); flashDropzone(); }));
     Office.actions.associate("deleteSnip", ribbon(async () => { await showPane(); await deleteOnSelection(); }));
@@ -138,6 +139,7 @@ function initUI() {
   $("pageinput").addEventListener("change", () => gotoPage(parseInt($("pageinput").value, 10) || 1));
   $("zoomfit").addEventListener("click", () => { state.zoom = 1; scheduleRender(); });
   $("ocrcur").addEventListener("click", () => { const d = curDoc(); if (!d) return setStatus("Apri prima un documento.", "err"); closePops(); runOcr(d, pagesMissing(d).length ? "missing" : "all", state.page); });
+  $("exportall").addEventListener("click", () => exportAll());
   $("dlorig").addEventListener("click", () => { const d = curDoc(); if (d) downloadOriginal(d); });
   $("dlann").addEventListener("click", () => { const d = curDoc(); if (d) downloadAnnotated(d); });
   ["lfilter", "ltype"].forEach(i => $(i).addEventListener("input", renderList));
@@ -971,6 +973,72 @@ async function downloadAnnotated(d) {
   } catch (e) {
     console.error(e);
     setStatus("Errore: " + (e.message || e), "err");
+  }
+}
+
+
+// =====================================================================
+//  Esporta tutto: zip con originali, documenti con gli snip e tabella
+// =====================================================================
+const safeName = n => String(n).replace(/[\\/:*?"<>|\u0000-\u001F]/g, "_");
+function splitCell(addr) {
+  const i = addr.lastIndexOf("!");
+  if (i < 0) return ["", addr];
+  return [addr.slice(0, i).replace(/^'(.*)'$/, "$1").replace(/''/g, "'"), addr.slice(i + 1)];
+}
+// righe della tabella: una per ogni snip; i documenti senza snip compaiono con tipo vuoto
+function exportRows(docs, log) {
+  const out = [["Nome documento", "Cartella", "Tipologia snip", "Foglio", "Cella", "Pagina"]];
+  for (const d of docs) {
+    const mine = log.filter(r => r.docId === d.id);
+    const ids = [...new Set(mine.map(r => r.id))].sort((a, b) => a - b);
+    if (!ids.length) { out.push([d.name, d.folder || "", "", "", "", ""]); continue; }
+    for (const id of ids) {
+      const rs = mine.filter(r => r.id === id);
+      const [sheet, cell] = splitCell(rs[0].cell || "");
+      const pages = [...new Set(rs.map(r => r.page))].sort((a, b) => a - b).join(", ");
+      out.push([d.name, d.folder || "", rs[0].type, sheet, cell, pages]);
+    }
+  }
+  return out;
+}
+async function exportAll() {
+  if (state.busy) return;
+  if (!state.index.docs.length) { setStatus("Non ci sono documenti da esportare in questo file.", "err"); return; }
+  state.busy = true;
+  try {
+    const docs = [...state.index.docs].sort((a, b) => (a.folder + "/" + a.name).localeCompare(b.folder + "/" + b.name, "it"));
+    const entries = [], used = new Set(), problems = [];
+    const uniq = path => { let p = path, n = 2; while (used.has(p.toLowerCase())) { p = path.replace(/(\.[^./]*)?$/, m => ` (${n++})${m}`); } used.add(p.toLowerCase()); return p; };
+    let i = 0;
+    for (const d of docs) {
+      i++;
+      setStatus(`Esporto ${i}/${docs.length}: «${d.name}»…`);
+      const dir = d.folder ? d.folder.split("/").map(safeName).join("/") + "/" : "";
+      const bytes = await loadBytes(d);
+      entries.push({ name: uniq("1 - Originali/" + dir + safeName(d.name)), data: new Uint8Array(bytes) });
+      const rows = state.log.filter(r => r.docId === d.id);
+      if (rows.length) {
+        try {
+          const out = await ExportLib.annotate(PDFLib, bytes, d, rows);
+          entries.push({ name: uniq("2 - Con snip/" + dir + safeName(d.name.replace(/\.[^.]+$/, "")) + "_con_snip.pdf"), data: new Uint8Array(out) });
+        } catch (e) { console.error(e); problems.push(d.name); }
+      }
+    }
+    entries.push({ name: "3 - Tabella snip.xlsx", data: ZipLib.xlsx(exportRows(docs, state.log), "Snip", [40, 25, 16, 20, 10, 10]) });
+    setStatus("Creo lo zip…");
+    const zip = ZipLib.zip(entries);
+    const d = new Date(), p2 = n => String(n).padStart(2, "0");
+    const fname = `Snipper_export_${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.zip`;
+    saveBlob(new Blob([zip], { type: "application/zip" }), fname);
+    setStatus(`Creato «${fname}»: ${docs.length} documenti, ${new Set(state.log.map(r => r.id)).size} snip.` +
+      (problems.length ? ` Non sono riuscito a disegnare gli snip su: ${problems.join(", ")} (gli originali ci sono).` : "") +
+      " Se il download non parte, premi di nuovo «Esporta tutto» nelle Impostazioni.", problems.length ? "err" : "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("Errore: " + (e.message || e), "err");
+  } finally {
+    state.busy = false;
   }
 }
 
